@@ -1,0 +1,19 @@
+{
+  "deploy": {
+    "type": "docker-compose",
+    "dockerCompose": {
+      "path": "docker-compose.yml"
+    }
+  },
+  "volumes": ["pgdata"],
+  "env": {
+    "JWT_SECRET": {
+      "description": "JWT signing secret",
+      "required": true
+    },
+    "SESSION_SECRET": {
+      "description": "Session secret",
+      "required": true
+    }
+  }
+}
