@@ -18,6 +18,7 @@ COPY server/package.json server/package-lock.json* ./server/
 RUN cd server && npm ci --omit=dev
 
 COPY server/ ./server/
+COPY db/ ./db/
 COPY --from=builder /app/client/dist ./server/public
 
 EXPOSE 3000
