@@ -18,6 +18,7 @@ router.use(authMiddleware);
 // ============================================================
 router.post('/preview', upload.single('file'), async (req, res) => {
   try {
+    console.log('Import preview: received file', req.file?.originalname, req.file?.size, 'bytes');
     if (!req.file) {
       return res.status(400).json({ error: 'File required' });
     }
@@ -25,15 +26,20 @@ router.post('/preview', upload.single('file'), async (req, res) => {
     // Parse JSON from uploaded file
     let jsonData;
     try {
-      jsonData = JSON.parse(req.file.buffer.toString('utf8'));
+      const content = req.file.buffer.toString('utf8');
+      console.log('Import preview: JSON size', content.length, 'chars');
+      jsonData = JSON.parse(content);
+      console.log('Import preview: parsed keys:', Object.keys(jsonData));
     } catch (parseErr) {
-      return res.status(400).json({ error: 'Invalid JSON file' });
+      console.error('Import preview: JSON parse error:', parseErr.message);
+      return res.status(400).json({ error: 'Invalid JSON file: ' + parseErr.message });
     }
 
     const preview = {};
 
     // ---- Shipping Services (check duplicate by code) ----
     if (jsonData.ShippingService && Array.isArray(jsonData.ShippingService)) {
+      console.log('Import preview: Processing', jsonData.ShippingService.length, 'shipping services');
       const codes = jsonData.ShippingService.map(s => s.code).filter(Boolean);
       let existingCodes = [];
       if (codes.length > 0) {
@@ -42,6 +48,7 @@ router.post('/preview', upload.single('file'), async (req, res) => {
           [codes]
         );
         existingCodes = result.rows.map(r => r.code);
+        console.log('Import preview: Found', existingCodes.length, 'existing shipping services');
       }
       preview.ShippingService = jsonData.ShippingService.map(item => ({
         ...item,
@@ -208,8 +215,8 @@ router.post('/preview', upload.single('file'), async (req, res) => {
 
     res.json({ preview, summary });
   } catch (err) {
-    console.error('Import preview error:', err);
-    res.status(500).json({ error: 'Preview failed' });
+    console.error('Import preview error:', err.message, err.stack);
+    res.status(500).json({ error: 'Preview failed: ' + err.message });
   }
 });
 
