@@ -4,29 +4,22 @@ const cors = require('cors');
 const path = require('path');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const fs = require('fs');
 const { pool } = require('./utils/db');
 
 const app = express();
 
-// Auto-seed admin user if users table is empty
+// Auto-create all tables and seed admin on startup
 async function autoSeed() {
   try {
-    // Create users table if not exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email VARCHAR(255) UNIQUE NOT NULL,
-        full_name VARCHAR(255),
-        password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(50) DEFAULT 'user',
-        custom_role VARCHAR(50) DEFAULT 'STAFF',
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-    console.log('✅ Users table ready');
+    const initSqlPath = require('path').resolve(__dirname, '../db/init.sql');
+    const initSql = fs.readFileSync(initSqlPath, 'utf8');
+    const statements = initSql.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'));
+    for (const stmt of statements) {
+      try { await pool.query(stmt); } catch(e) { /* skip if exists */ }
+    }
+    console.log('✅ Database tables initialized');
 
-    // Seed admin user if empty
     const result = await pool.query('SELECT COUNT(*) FROM users');
     if (parseInt(result.rows[0].count) === 0) {
       const hash = await bcrypt.hash('admin123', 10);
