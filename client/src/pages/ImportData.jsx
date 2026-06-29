@@ -214,29 +214,61 @@ export default function ImportData() {
             <CheckCircle size={20} className="text-green-400" />
             <h3 className="text-lg font-medium">Import Complete</h3>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {Object.entries(importResult).filter(([k]) => k !== 'errors' && k !== 'message').map(([type, counts]) => (
-              <div key={type} className="bg-gray-800 rounded-lg p-4">
-                <p className="text-sm text-gray-400 capitalize mb-2">{type}</p>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-green-400">Success</span>
-                    <span className="font-medium">{counts.success || 0}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-yellow-400">Skipped</span>
-                    <span className="font-medium">{counts.skipped || 0}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-red-400">Failed</span>
-                    <span className="font-medium">{counts.failed || 0}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+
+          {/* Summary */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="bg-green-900/20 border border-green-800/50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-green-400">{importResult.totalImported || 0}</p>
+              <p className="text-xs text-gray-400">Imported</p>
+            </div>
+            <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-yellow-400">{importResult.totalSkipped || 0}</p>
+              <p className="text-xs text-gray-400">Skipped</p>
+            </div>
+            <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-red-400">{importResult.totalFailed || 0}</p>
+              <p className="text-xs text-gray-400">Failed</p>
+            </div>
           </div>
-          {importResult.message && (
-            <p className="text-sm text-gray-400 mt-4">{importResult.message}</p>
+
+          {/* Per-type breakdown */}
+          {importResult.results && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {Object.entries(importResult.results).map(([type, counts]) => {
+                const total = (counts.success || 0) + (counts.skipped || 0) + (counts.failed || 0);
+                if (total === 0) return null;
+                return (
+                  <div key={type} className="bg-gray-800 rounded-lg p-3">
+                    <p className="text-sm text-gray-300 font-medium mb-2">{type}</p>
+                    <div className="space-y-1 text-xs">
+                      {counts.success > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-green-400">✓ Success</span>
+                          <span>{counts.success}</span>
+                        </div>
+                      )}
+                      {counts.skipped > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-yellow-400">⊘ Skipped</span>
+                          <span>{counts.skipped}</span>
+                        </div>
+                      )}
+                      {counts.failed > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-red-400">✗ Failed</span>
+                          <span>{counts.failed}</span>
+                        </div>
+                      )}
+                    </div>
+                    {counts.errors && counts.errors.length > 0 && (
+                      <p className="text-xs text-red-400 mt-2 truncate" title={counts.errors.join('\n')}>
+                        {counts.errors.length} error(s)
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
