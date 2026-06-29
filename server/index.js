@@ -3,10 +3,30 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const session = require('express-session');
+const bcrypt = require('bcrypt');
 const { pool } = require('./utils/db');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+
+// Auto-seed admin user if users table is empty
+async function autoSeed() {
+  try {
+    const result = await pool.query('SELECT COUNT(*) FROM users');
+    if (parseInt(result.rows[0].count) === 0) {
+      const hash = await bcrypt.hash('admin123', 10);
+      await pool.query(
+        `INSERT INTO users (email, full_name, password_hash, role, custom_role)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['admin@zaneva.com', 'Admin', hash, 'admin', 'OWNER']
+      );
+      console.log('✅ Auto-seeded admin user (admin@zaneva.com / admin123)');
+    }
+  } catch (err) {
+    console.error('Auto-seed error:', err.message);
+  }
+}
+
+const PORT
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
@@ -48,6 +68,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`CRM Server running on port ${PORT}`);
+// Auto-seed on startup
+autoSeed().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`CRM Server running on port ${PORT}`);
+  });
 });
