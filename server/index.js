@@ -33,7 +33,7 @@ async function autoSeed() {
     )`,
     `CREATE TABLE IF NOT EXISTS products (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      sku VARCHAR(100),
+      sku VARCHAR(100) UNIQUE,
       nama_produk VARCHAR(255) NOT NULL,
       harga DECIMAL(15,2) NOT NULL,
       brand VARCHAR(100),
@@ -56,7 +56,7 @@ async function autoSeed() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_customers_telepon ON customers(no_telepon)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_telepon ON customers(no_telepon)`,
     `CREATE TABLE IF NOT EXISTS kecamatan_sap (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       kode VARCHAR(50) UNIQUE NOT NULL,
@@ -67,7 +67,7 @@ async function autoSeed() {
     )`,
     `CREATE TABLE IF NOT EXISTS kecamatan_jnt (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      kode VARCHAR(50),
+      kode VARCHAR(50) UNIQUE,
       kecamatan VARCHAR(100) NOT NULL,
       kota_kab VARCHAR(100) NOT NULL,
       provinsi VARCHAR(100) NOT NULL
@@ -162,8 +162,18 @@ async function autoSeed() {
     )`,
   ];
 
+  // ALTER TABLE to fix missing UNIQUE constraints on existing DB
+  const alterTables = [
+    `DO $$ BEGIN ALTER TABLE kecamatan_jnt ADD CONSTRAINT uniq_kecamatan_jnt_kode UNIQUE (kode); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+    `DO $$ BEGIN ALTER TABLE products ADD CONSTRAINT uniq_products_sku UNIQUE (sku); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+    `DO $$ BEGIN ALTER TABLE customers ADD CONSTRAINT uniq_customers_telepon UNIQUE (no_telepon); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  ];
+
   try {
     for (const sql of tables) {
+      try { await pool.query(sql); } catch(e) { /* skip */ }
+    }
+    for (const sql of alterTables) {
       try { await pool.query(sql); } catch(e) { /* skip */ }
     }
     console.log('✅ Database tables initialized');

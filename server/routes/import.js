@@ -247,19 +247,36 @@ router.post('/confirm', async (req, res) => {
     // Build ID mapping for orders (original _id -> new UUID)
     const orderIdMap = {};
 
+    // Helper: safe insert with ON CONFLICT fallback
+    const safeInsert = async (sql, params, fallbackSql) => {
+      try {
+        await client.query(sql, params);
+        return true;
+      } catch (e) {
+        // If ON CONFLICT constraint missing, try without it
+        if (fallbackSql) {
+          try {
+            await client.query(fallbackSql, params);
+            return true;
+          } catch (e2) {
+            throw e2;
+          }
+        }
+        throw e;
+      }
+    };
+
     // ---- 1. Import Shipping Services ----
     if (data.ShippingService && Array.isArray(data.ShippingService)) {
       for (const item of data.ShippingService) {
-        if (item._isDuplicate) {
-          results.ShippingService.skipped++;
-          continue;
-        }
+        if (item._isDuplicate) { results.ShippingService.skipped++; continue; }
         try {
           await client.query(
-            `INSERT INTO shipping_services (id, name, code)
-             VALUES ($1, $2, $3)
+            `INSERT INTO shipping_services (id, name, code, platform, brand, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (code) DO NOTHING`,
-            [item._newId || uuidv4(), item.name || '', item.code || '']
+            [item._newId || uuidv4(), item.name || '', item.code || '',
+             item.platform || '', item.brand || 'ZANEVA', item.is_active !== false]
           );
           results.ShippingService.success++;
         } catch (e) {
@@ -272,16 +289,14 @@ router.post('/confirm', async (req, res) => {
     // ---- 2. Import Kecamatan SAP ----
     if (data.KecamatanSAP && Array.isArray(data.KecamatanSAP)) {
       for (const item of data.KecamatanSAP) {
-        if (item._isDuplicate) {
-          results.KecamatanSAP.skipped++;
-          continue;
-        }
+        if (item._isDuplicate) { results.KecamatanSAP.skipped++; continue; }
+        if (!item.kode) { results.KecamatanSAP.skipped++; continue; } // skip null kode
         try {
           await client.query(
             `INSERT INTO kecamatan_sap (id, kode, kecamatan, kota_kab, provinsi, status_tercover)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (kode) DO NOTHING`,
-            [item._newId || uuidv4(), item.kode || '', item.kecamatan || '',
+            [item._newId || uuidv4(), item.kode, item.kecamatan || '',
              item.kota_kab || '', item.provinsi || '', item.status_tercover || 'Ya']
           );
           results.KecamatanSAP.success++;
@@ -295,16 +310,14 @@ router.post('/confirm', async (req, res) => {
     // ---- 3. Import Kecamatan JNT ----
     if (data.KecamatanJNT && Array.isArray(data.KecamatanJNT)) {
       for (const item of data.KecamatanJNT) {
-        if (item._isDuplicate) {
-          results.KecamatanJNT.skipped++;
-          continue;
-        }
+        if (item._isDuplicate) { results.KecamatanJNT.skipped++; continue; }
+        if (!item.kode) { results.KecamatanJNT.skipped++; continue; } // skip null kode
         try {
           await client.query(
             `INSERT INTO kecamatan_jnt (id, kode, kecamatan, kota_kab, provinsi)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (kode) DO NOTHING`,
-            [item._newId || uuidv4(), item.kode || '', item.kecamatan || '',
+            [item._newId || uuidv4(), item.kode, item.kecamatan || '',
              item.kota_kab || '', item.provinsi || '']
           );
           results.KecamatanJNT.success++;
@@ -318,17 +331,16 @@ router.post('/confirm', async (req, res) => {
     // ---- 4. Import Products ----
     if (data.Product && Array.isArray(data.Product)) {
       for (const item of data.Product) {
-        if (item._isDuplicate) {
-          results.Product.skipped++;
-          continue;
-        }
+        if (item._isDuplicate) { results.Product.skipped++; continue; }
+        const sku = item.sku || item.nama_produk || ''; // fallback: use nama as sku
+        if (!sku) { results.Product.skipped++; continue; }
         try {
           await client.query(
             `INSERT INTO products (id, sku, nama_produk, harga, brand)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (sku) DO NOTHING`,
-            [item._newId || uuidv4(), item.sku || '', item.nama_produk || '',
-             parseFloat(item.harga) || 0, item.brand || '']
+            [item._newId || uuidv4(), sku, item.nama_produk || '',
+             parseFloat(item.harga) || 0, item.brand || 'ZANEVA']
           );
           results.Product.success++;
         } catch (e) {
@@ -341,17 +353,22 @@ router.post('/confirm', async (req, res) => {
     // ---- 5. Import Customers ----
     if (data.Customer && Array.isArray(data.Customer)) {
       for (const item of data.Customer) {
-        if (item._isDuplicate) {
-          results.Customer.skipped++;
-          continue;
-        }
+        if (item._isDuplicate) { results.Customer.skipped++; continue; }
+        const phone = item.no_telepon || '';
+        if (!phone) { results.Customer.skipped++; continue; } // skip if no phone
         try {
           await client.query(
-            `INSERT INTO customers (id, nama, no_telepon, alamat)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (no_telepon) DO NOTHING`,
-            [item._newId || uuidv4(), item.nama || '', item.no_telepon || '',
-             item.alamat || '']
+            `INSERT INTO customers (id, nama, no_telepon, alamat, provinsi, kota_kab, kecamatan, kode_pos, email, notes, total_orders, last_order_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (no_telepon) DO UPDATE SET
+               nama = EXCLUDED.nama, alamat = EXCLUDED.alamat,
+               provinsi = EXCLUDED.provinsi, kota_kab = EXCLUDED.kota_kab,
+               kecamatan = EXCLUDED.kecamatan, kode_pos = EXCLUDED.kode_pos,
+               updated_at = NOW()`,
+            [item._newId || uuidv4(), item.nama || '', phone, item.alamat || '',
+             item.provinsi || '', item.kota_kab || '', item.kecamatan || '',
+             item.kode_pos || '', item.email || null, item.notes || null,
+             parseInt(item.total_orders) || 0, item.last_order_date || null]
           );
           results.Customer.success++;
         } catch (e) {
@@ -364,41 +381,57 @@ router.post('/confirm', async (req, res) => {
     // ---- 6. Import Orders ----
     if (data.Order && Array.isArray(data.Order)) {
       for (const item of data.Order) {
+        // Always map ID, even for duplicates (needed for order_items)
+        const origId = item.id || item._id;
+        if (origId) {
+          // Check if already in DB by order_number
+          try {
+            const existing = await client.query(
+              'SELECT id FROM orders WHERE order_number = $1', [item.order_number]
+            );
+            if (existing.rows.length > 0) {
+              orderIdMap[origId] = existing.rows[0].id;
+            }
+          } catch (_) {}
+        }
+
         if (item._isDuplicate) {
           results.Order.skipped++;
-          // Still need to track the mapping for order_items
-          if (item._id || item.id) {
-            // Look up existing order by order_number to map it
-            try {
-              const existing = await client.query(
-                'SELECT id FROM orders WHERE order_number = $1',
-                [item.order_number]
-              );
-              if (existing.rows.length > 0) {
-                orderIdMap[item._id || item.id] = existing.rows[0].id;
-              }
-            } catch (_) { /* ignore */ }
-          }
           continue;
         }
         try {
           const newId = item._newId || uuidv4();
+          // Normalize jenis_transaksi to valid CHECK values
+          let jenisTransaksi = (item.jenis_transaksi || 'CASH').toUpperCase();
+          if (!['CASH', 'COD'].includes(jenisTransaksi)) jenisTransaksi = 'CASH';
+
           await client.query(
-            `INSERT INTO orders (id, order_number, nama_pemesan, alamat, no_telepon,
-              kode_pos, jenis_transaksi, jasa_pengiriman, provinsi, kota_kab, kecamatan,
-              total, status_pesanan, no_resi, catatan, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            `INSERT INTO orders (id, order_number, order_date, nama_pemesan, alamat, no_telepon,
+              kode_pos, berat_kg, jenis_transaksi, instruksi_pengiriman, jasa_pengiriman,
+              provinsi, kota_kab, kecamatan, kecamatan_kode, ketentuan, metode_pembayaran,
+              transfer_atas_nama, total_belanja, ongkir, penanganan, total,
+              no_resi, status_pesanan, platform, finance_status, finance_verified_by,
+              finance_verified_at, last_updated_by, created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
              ON CONFLICT (order_number) DO NOTHING`,
-            [newId, item.order_number || '', item.nama_pemesan || '', item.alamat || '',
-             item.no_telepon || '', item.kode_pos || '', item.jenis_transaksi || 'CASH',
+            [newId, item.order_number || null, item.order_date || new Date().toISOString().split('T')[0],
+             item.nama_pemesan || '', item.alamat || '', item.no_telepon || '',
+             item.kode_pos || null, parseFloat(item.berat_kg) || null,
+             jenisTransaksi, item.instruksi_pengiriman || null,
              item.jasa_pengiriman || 'sap', item.provinsi || '', item.kota_kab || '',
-             item.kecamatan || '', parseFloat(item.total) || 0,
-             item.status_pesanan || 'DRAFT', item.no_resi || '',
-             item.catatan || '', req.user.email]
+             item.kecamatan || '', item.kecamatan_kode || null,
+             item.ketentuan || null, item.metode_pembayaran || null,
+             item.transfer_atas_nama || null, parseFloat(item.total_belanja) || 0,
+             parseFloat(item.ongkir) || 0, parseFloat(item.penanganan) || 0,
+             parseFloat(item.total) || 0, item.no_resi || null,
+             item.status_pesanan || 'DRAFT', item.platform || 'CRM',
+             item.finance_status || null, item.finance_verified_by || null,
+             item.finance_verified_at || null, item.last_updated_by || null,
+             req.user.email]
           );
           // Map original _id to new UUID
-          if (item._id || item.id) {
-            orderIdMap[item._id || item.id] = newId;
+          if (origId) {
+            orderIdMap[origId] = newId;
           }
           results.Order.success++;
         } catch (e) {
@@ -413,23 +446,43 @@ router.post('/confirm', async (req, res) => {
       for (const item of data.OrderItem) {
         try {
           const newId = item._newId || uuidv4();
-          // Resolve order_id: use _mappedOrderId if available, otherwise try orderIdMap
-          let resolvedOrderId = item._mappedOrderId || item.order_id || item.OrderID || null;
-          if (orderIdMap[resolvedOrderId]) {
-            resolvedOrderId = orderIdMap[resolvedOrderId];
+          // Resolve order_id: try multiple paths
+          let resolvedOrderId = item._mappedOrderId || null;
+          if (!resolvedOrderId) {
+            // Try to find in orderIdMap by original order_id
+            const origOrderId = item.order_id || item.OrderID;
+            if (origOrderId && orderIdMap[origOrderId]) {
+              resolvedOrderId = orderIdMap[origOrderId];
+            }
+          }
+          // If still no mapping, try to find by order_number in DB
+          if (!resolvedOrderId && item.order_number) {
+            try {
+              const existing = await client.query(
+                'SELECT id FROM orders WHERE order_number = $1', [item.order_number]
+              );
+              if (existing.rows.length > 0) resolvedOrderId = existing.rows[0].id;
+            } catch (_) {}
           }
 
           if (!resolvedOrderId) {
             results.OrderItem.failed++;
-            results.OrderItem.errors.push('No valid order_id for order item');
+            results.OrderItem.errors.push(`No order_id mapping for item: ${item.nama_produk || 'unknown'}`);
             continue;
           }
 
           await client.query(
-            `INSERT INTO order_items (id, order_id, nama_produk, qty, harga_setelah_diskon)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [newId, resolvedOrderId, item.nama_produk || '',
-             parseInt(item.qty) || 0, parseFloat(item.harga_setelah_diskon) || 0]
+            `INSERT INTO order_items (id, order_id, sku, nama_produk, qty, harga_setelah_diskon,
+              subtotal_item, jasa_pengiriman, berat_kg, provinsi, kota_kab, kecamatan,
+              kecamatan_kode, status_tercover, instruksi_pengiriman)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            [newId, resolvedOrderId, item.sku || '', item.nama_produk || '',
+             parseInt(item.qty) || 1, parseFloat(item.harga_setelah_diskon) || 0,
+             parseFloat(item.subtotal_item) || 0, item.jasa_pengiriman || null,
+             parseFloat(item.berat_kg) || null, item.provinsi || '',
+             item.kota_kab || '', item.kecamatan || '',
+             item.kecamatan_kode || null, item.status_tercover || null,
+             item.instruksi_pengiriman || null]
           );
           results.OrderItem.success++;
         } catch (e) {
