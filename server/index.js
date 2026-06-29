@@ -26,7 +26,7 @@ async function autoSeed() {
   }
 }
 
-const PORT
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
