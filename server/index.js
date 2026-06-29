@@ -11,6 +11,22 @@ const app = express();
 // Auto-seed admin user if users table is empty
 async function autoSeed() {
   try {
+    // Create users table if not exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        full_name VARCHAR(255),
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        custom_role VARCHAR(50) DEFAULT 'STAFF',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    console.log('✅ Users table ready');
+
+    // Seed admin user if empty
     const result = await pool.query('SELECT COUNT(*) FROM users');
     if (parseInt(result.rows[0].count) === 0) {
       const hash = await bcrypt.hash('admin123', 10);
