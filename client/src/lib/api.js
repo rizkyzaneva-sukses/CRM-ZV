@@ -137,5 +137,5 @@ export const api = {
     }
     return res.json();
   },
-  importConfirm: (data) => request('/import/confirm', { method: 'POST', body: JSON.stringify(data) }),
+  importConfirm: (data) => request('/import/confirm', { method: 'POST', body: JSON.stringify({ data }) }),
 };
