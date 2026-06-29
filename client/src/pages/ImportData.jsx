@@ -30,7 +30,7 @@ export default function ImportData() {
     const sel = {};
     for (const [type, items] of Object.entries(data)) {
       if (Array.isArray(items)) {
-        sel[type] = items.map((item, idx) => !item.isDuplicate);
+        sel[type] = items.map((item, idx) => !item._isDuplicate);
       }
     }
     setSelections(sel);
@@ -103,7 +103,7 @@ export default function ImportData() {
     if (!preview?.[type]) return { total: 0, newCount: 0, dupCount: 0, selected: 0 };
     const items = preview[type];
     const total = items.length;
-    const dupCount = items.filter(i => i.isDuplicate).length;
+    const dupCount = items.filter(i => i._isDuplicate).length;
     const newCount = total - dupCount;
     const selected = selections[type]?.filter(Boolean).length || 0;
     return { total, newCount, dupCount, selected };
@@ -135,7 +135,7 @@ export default function ImportData() {
       const selectedItems = preview[type]
         .filter((_, idx) => selArr[idx])
         .map(item => {
-          const { isDuplicate, duplicateOf, ...rest } = item;
+          const { _isDuplicate, _newId, duplicateOf, ...rest } = item;
           return rest;
         });
       if (selectedItems.length > 0) {
@@ -377,7 +377,7 @@ export default function ImportData() {
               {/* Items List */}
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
                 {preview[activeTab].map((item, idx) => {
-                  const isDup = item.isDuplicate;
+                  const isDup = item._isDuplicate;
                   const isSelected = selections[activeTab]?.[idx] ?? false;
                   const detailKey = `${activeTab}-${idx}`;
                   const showDetail = showDetails[detailKey];
@@ -440,7 +440,7 @@ export default function ImportData() {
                       {showDetail && (
                         <div className="px-4 pb-3 pt-1 border-t border-gray-800/50">
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {Object.entries(item).filter(([k]) => !['isDuplicate', 'duplicateOf'].includes(k)).map(([key, val]) => (
+                            {Object.entries(item).filter(([k]) => !['_isDuplicate', '_newId', 'duplicateOf'].includes(k)).map(([key, val]) => (
                               <div key={key} className="bg-gray-900/50 rounded px-2 py-1">
                                 <span className="text-xs text-gray-500">{key}: </span>
                                 <span className="text-xs text-gray-300">{renderValue(val)}</span>
