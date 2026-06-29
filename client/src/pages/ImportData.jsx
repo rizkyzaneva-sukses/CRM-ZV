@@ -50,10 +50,11 @@ export default function ImportData() {
 
     try {
       const result = await api.importPreview(f);
-      setPreview(result);
-      const dataTypes = Object.keys(result).filter(k => Array.isArray(result[k]));
+      const previewData = result.preview || result;
+      setPreview(previewData);
+      const dataTypes = Object.keys(previewData).filter(k => Array.isArray(previewData[k]));
       if (dataTypes.length > 0) setActiveTab(dataTypes[0]);
-      initSelections(result);
+      initSelections(previewData);
     } catch (err) {
       setError(err.message || 'Failed to preview file');
     } finally {
