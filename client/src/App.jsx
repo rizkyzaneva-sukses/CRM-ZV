@@ -14,6 +14,7 @@ import MasterData from './pages/MasterData';
 import FinanceApproval from './pages/FinanceApproval';
 import AuditLog from './pages/AuditLog';
 import UserManagement from './pages/UserManagement';
+import ImportData from './pages/ImportData';
 import Login from './pages/Login';
 
 // Components
@@ -48,6 +49,7 @@ function AppRoutes() {
       <Route path="/FinanceApproval" element={<ProtectedRoute roles={['OWNER','FINANCE']}><Layout><FinanceApproval /></Layout></ProtectedRoute>} />
       <Route path="/AuditLog" element={<ProtectedRoute><Layout><AuditLog /></Layout></ProtectedRoute>} />
       <Route path="/UserManagement" element={<ProtectedRoute roles={['OWNER']}><Layout><UserManagement /></Layout></ProtectedRoute>} />
+      <Route path="/ImportData" element={<ProtectedRoute roles={['OWNER']}><Layout><ImportData /></Layout></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

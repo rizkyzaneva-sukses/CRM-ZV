@@ -68,6 +68,7 @@ app.use('/api/shipping-services', require('./routes/shippingServices'));
 app.use('/api/kecamatan-sap', require('./routes/kecamatanSap'));
 app.use('/api/kecamatan-jnt', require('./routes/kecamatanJnt'));
 app.use('/api/upload', require('./routes/upload'));
+app.use('/api/import', require('./routes/import'));
 app.use('/api/audit-logs', require('./routes/auditLogs'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/export', require('./routes/export'));

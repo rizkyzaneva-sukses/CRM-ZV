@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import {
   LayoutDashboard, Package, Users, Truck, Printer, Download,
-  Database, DollarSign, FileText, UserCog, LogOut
+  Database, DollarSign, FileText, UserCog, LogOut, FileUp
 } from 'lucide-react';
 
 const allMenuItems = [
@@ -17,6 +17,7 @@ const allMenuItems = [
   { path: '/MasterData', label: 'Master Data', icon: Database, roles: ['OWNER','FINANCE'] },
   { path: '/AuditLog', label: 'Audit Log', icon: FileText, roles: ['OWNER','FINANCE','INVENTORI'] },
   { path: '/UserManagement', label: 'User Management', icon: UserCog, roles: ['OWNER'] },
+  { path: '/ImportData', label: 'Import Data', icon: FileUp, roles: ['OWNER'] },
 ];
 
 export default function Sidebar({ currentPath, customRole }) {

@@ -120,4 +120,22 @@ export const api = {
   updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   resetAllData: () => request('/users/reset-all-data', { method: 'POST' }),
+
+  // Import
+  importPreview: async (file) => {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/import/preview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Preview failed' }));
+      throw new Error(err.error || 'Preview failed');
+    }
+    return res.json();
+  },
+  importConfirm: (data) => request('/import/confirm', { method: 'POST', body: JSON.stringify(data) }),
 };
