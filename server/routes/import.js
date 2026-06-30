@@ -442,20 +442,22 @@ router.post('/confirm', async (req, res) => {
     }
 
     // ---- 7. Import Order Items ----
+    // orderIdMap now contains all order mappings (new + existing duplicates)
     if (data.OrderItem && Array.isArray(data.OrderItem)) {
       for (const item of data.OrderItem) {
         try {
           const newId = item._newId || uuidv4();
-          // Resolve order_id: try multiple paths
-          let resolvedOrderId = item._mappedOrderId || null;
-          if (!resolvedOrderId) {
-            // Try to find in orderIdMap by original order_id
-            const origOrderId = item.order_id || item.OrderID;
-            if (origOrderId && orderIdMap[origOrderId]) {
-              resolvedOrderId = orderIdMap[origOrderId];
-            }
+
+          // Resolve order_id using orderIdMap (built during Order import above)
+          // NEVER use _mappedOrderId from frontend — it's stale from preview
+          let resolvedOrderId = null;
+          const origOrderId = item.order_id || item.OrderID;
+
+          // 1. Try orderIdMap (maps original MongoDB ObjectId → DB UUID)
+          if (origOrderId && orderIdMap[origOrderId]) {
+            resolvedOrderId = orderIdMap[origOrderId];
           }
-          // If still no mapping, try to find by order_number in DB
+          // 2. Try DB lookup by order_number (fallback)
           if (!resolvedOrderId && item.order_number) {
             try {
               const existing = await client.query(
@@ -464,10 +466,17 @@ router.post('/confirm', async (req, res) => {
               if (existing.rows.length > 0) resolvedOrderId = existing.rows[0].id;
             } catch (_) {}
           }
+          // 3. Try _mappedOrderId as last resort (stale but better than nothing)
+          if (!resolvedOrderId && item._mappedOrderId) {
+            // Check if it's a valid UUID format (not MongoDB ObjectId)
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item._mappedOrderId)) {
+              resolvedOrderId = item._mappedOrderId;
+            }
+          }
 
           if (!resolvedOrderId) {
             results.OrderItem.failed++;
-            results.OrderItem.errors.push(`No order_id mapping for item: ${item.nama_produk || 'unknown'}`);
+            results.OrderItem.errors.push(`No order_id for: ${item.nama_produk || 'unknown'} (orig: ${origOrderId})`);
             continue;
           }
 
