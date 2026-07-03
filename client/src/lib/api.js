@@ -20,7 +20,17 @@ async function request(path, options = {}) {
     if (window.location.pathname !== '/login') {
       window.location.href = '/login';
     }
-    throw new Error('Unauthorized');
+    
+    // Try to get the actual backend error message
+    let errorMessage = 'Unauthorized';
+    try {
+      const errBody = await res.clone().json();
+      if (errBody && errBody.error) {
+        errorMessage = errBody.error;
+      }
+    } catch(e) {}
+    
+    throw new Error(errorMessage);
   }
 
   if (!res.ok) {
