@@ -69,7 +69,7 @@ router.post('/google', async (req, res) => {
     });
   } catch (err) {
     console.error('Google login error:', err);
-    res.status(401).json({ error: 'Google login failed: ' + err.message });
+    res.status(401).json({ error: 'Autentikasi Google gagal. Silakan coba lagi.' });
   }
 });
 
