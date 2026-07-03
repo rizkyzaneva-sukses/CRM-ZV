@@ -7,6 +7,8 @@ COPY client/package.json client/package-lock.json* ./client/
 RUN cd client && npm ci
 
 COPY client/ ./client/
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 RUN cd client && npx vite build
 
 # Production stage
