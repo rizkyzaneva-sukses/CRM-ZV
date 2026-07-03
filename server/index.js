@@ -217,6 +217,20 @@ async function autoSeed() {
       );
       console.log('✅ Auto-seeded admin user (admin@zaneva.com / admin123)');
     }
+    
+    // Ensure alawizaneva@gmail.com exists as OWNER
+    const alawiCheck = await pool.query('SELECT id FROM users WHERE email = $1', ['alawizaneva@gmail.com']);
+    if (alawiCheck.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO users (email, full_name, role, custom_role)
+         VALUES ($1, $2, $3, $4)`,
+        ['alawizaneva@gmail.com', 'Alawi Zaneva', 'admin', 'OWNER']
+      );
+      console.log('✅ Auto-seeded alawizaneva@gmail.com as OWNER');
+    } else {
+      // Force role to OWNER just in case
+      await pool.query('UPDATE users SET role=$1, custom_role=$2 WHERE email=$3', ['admin', 'OWNER', 'alawizaneva@gmail.com']);
+    }
   } catch (err) {
     console.error('Auto-seed error:', err.message);
   }
