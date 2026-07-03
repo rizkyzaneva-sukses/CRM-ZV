@@ -26,8 +26,9 @@ router.get('/', async (req, res) => {
       params.push(kota_kab);
     }
 
+    const limit = parseInt(req.query.limit) || 500;
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const result = await query(`SELECT * FROM kecamatan_sap ${whereClause} ORDER BY provinsi, kota_kab, kecamatan LIMIT 500`, params);
+    const result = await query(`SELECT * FROM kecamatan_sap ${whereClause} ORDER BY provinsi, kota_kab, kecamatan LIMIT $${idx}`, [...params, limit]);
     res.json({ data: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch kecamatan SAP' });
@@ -66,6 +67,41 @@ router.get('/districts', async (req, res) => {
     res.json({ districts: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch districts' });
+  }
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const { kode, kecamatan, kota_kab, provinsi, status_tercover } = req.body;
+    const result = await query(
+      'INSERT INTO kecamatan_sap (kode, kecamatan, kota_kab, provinsi, status_tercover) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [kode, kecamatan, kota_kab, provinsi, status_tercover]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create kecamatan SAP' });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const { kode, kecamatan, kota_kab, provinsi, status_tercover } = req.body;
+    const result = await query(
+      'UPDATE kecamatan_sap SET kode=$1, kecamatan=$2, kota_kab=$3, provinsi=$4, status_tercover=$5 WHERE id=$6 RETURNING *',
+      [kode, kecamatan, kota_kab, provinsi, status_tercover, req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update kecamatan SAP' });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM kecamatan_sap WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete kecamatan SAP' });
   }
 });
 

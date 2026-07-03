@@ -142,10 +142,12 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       }
       // Build ID map so order_items can reference new order IDs
       const orderIdMap = {};
+      const orderNumMap = {};
       preview.Order = jsonData.Order.map(item => {
         const newId = uuidv4();
         if (item._id || item.id) {
           orderIdMap[item._id || item.id] = newId;
+          orderNumMap[item._id || item.id] = item.order_number;
         }
         return {
           ...item,
@@ -153,8 +155,9 @@ router.post('/preview', upload.single('file'), async (req, res) => {
           _isDuplicate: existingOrderNumbers.includes(item.order_number),
         };
       });
-      // Store the map for order_items processing
+      // Store the maps for order_items processing
       preview._orderIdMap = orderIdMap;
+      preview._orderNumMap = orderNumMap;
     }
 
     // ---- Order Items ----
@@ -162,13 +165,18 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       preview.OrderItem = jsonData.OrderItem.map(item => {
         // Map the original order reference to the new order ID
         let mappedOrderId = item.order_id || item.OrderID;
+        let mappedOrderNum = null;
         if (preview._orderIdMap && preview._orderIdMap[mappedOrderId]) {
           mappedOrderId = preview._orderIdMap[mappedOrderId];
+        }
+        if (preview._orderNumMap && preview._orderNumMap[item.order_id || item.OrderID]) {
+          mappedOrderNum = preview._orderNumMap[item.order_id || item.OrderID];
         }
         return {
           ...item,
           _newId: uuidv4(),
           _mappedOrderId: mappedOrderId,
+          order_number: mappedOrderNum || item.order_number, // inject order_number
           _isDuplicate: false, // Order items don't have a unique constraint to check
         };
       });
@@ -198,8 +206,9 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       }));
     }
 
-    // Remove internal _orderIdMap from response
+    // Remove internal maps from response
     delete preview._orderIdMap;
+    delete preview._orderNumMap;
 
     // Calculate summary
     const summary = {};
@@ -235,13 +244,13 @@ router.post('/confirm', async (req, res) => {
     await client.query('BEGIN');
 
     const results = {
-      ShippingService: { success: 0, skipped: 0, failed: 0, errors: [] },
-      KecamatanSAP: { success: 0, skipped: 0, failed: 0, errors: [] },
-      KecamatanJNT: { success: 0, skipped: 0, failed: 0, errors: [] },
-      Product: { success: 0, skipped: 0, failed: 0, errors: [] },
-      Customer: { success: 0, skipped: 0, failed: 0, errors: [] },
-      Order: { success: 0, skipped: 0, failed: 0, errors: [] },
-      OrderItem: { success: 0, skipped: 0, failed: 0, errors: [] },
+      ShippingService: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      KecamatanSAP: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      KecamatanJNT: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      Product: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      Customer: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      Order: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
+      OrderItem: { success: 0, skipped: 0, failed: 0, errors: [], failedItems: [], skippedItems: [] },
     };
 
     // Build ID mapping for orders (original _id -> new UUID)
@@ -269,7 +278,7 @@ router.post('/confirm', async (req, res) => {
     // ---- 1. Import Shipping Services ----
     if (data.ShippingService && Array.isArray(data.ShippingService)) {
       for (const item of data.ShippingService) {
-        if (item._isDuplicate) { results.ShippingService.skipped++; continue; }
+        if (item._isDuplicate) { results.ShippingService.skipped++; results.ShippingService.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
         try {
           await client.query(
             `INSERT INTO shipping_services (id, name, code, platform, brand, is_active)
@@ -282,6 +291,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.ShippingService.failed++;
           results.ShippingService.errors.push(e.message);
+          results.ShippingService.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -289,8 +299,8 @@ router.post('/confirm', async (req, res) => {
     // ---- 2. Import Kecamatan SAP ----
     if (data.KecamatanSAP && Array.isArray(data.KecamatanSAP)) {
       for (const item of data.KecamatanSAP) {
-        if (item._isDuplicate) { results.KecamatanSAP.skipped++; continue; }
-        if (!item.kode) { results.KecamatanSAP.skipped++; continue; } // skip null kode
+        if (item._isDuplicate) { results.KecamatanSAP.skipped++; results.KecamatanSAP.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
+        if (!item.kode) { results.KecamatanSAP.skipped++; results.KecamatanSAP.skippedItems.push({ ...item, _skipReason: 'Kode tidak valid/kosong' }); continue; } // skip null kode
         try {
           await client.query(
             `INSERT INTO kecamatan_sap (id, kode, kecamatan, kota_kab, provinsi, status_tercover)
@@ -303,6 +313,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.KecamatanSAP.failed++;
           results.KecamatanSAP.errors.push(e.message);
+          results.KecamatanSAP.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -310,8 +321,8 @@ router.post('/confirm', async (req, res) => {
     // ---- 3. Import Kecamatan JNT ----
     if (data.KecamatanJNT && Array.isArray(data.KecamatanJNT)) {
       for (const item of data.KecamatanJNT) {
-        if (item._isDuplicate) { results.KecamatanJNT.skipped++; continue; }
-        if (!item.kode) { results.KecamatanJNT.skipped++; continue; } // skip null kode
+        if (item._isDuplicate) { results.KecamatanJNT.skipped++; results.KecamatanJNT.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
+        if (!item.kode) { results.KecamatanJNT.skipped++; results.KecamatanJNT.skippedItems.push({ ...item, _skipReason: 'Kode tidak valid/kosong' }); continue; } // skip null kode
         try {
           await client.query(
             `INSERT INTO kecamatan_jnt (id, kode, kecamatan, kota_kab, provinsi)
@@ -324,6 +335,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.KecamatanJNT.failed++;
           results.KecamatanJNT.errors.push(e.message);
+          results.KecamatanJNT.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -331,9 +343,9 @@ router.post('/confirm', async (req, res) => {
     // ---- 4. Import Products ----
     if (data.Product && Array.isArray(data.Product)) {
       for (const item of data.Product) {
-        if (item._isDuplicate) { results.Product.skipped++; continue; }
+        if (item._isDuplicate) { results.Product.skipped++; results.Product.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
         const sku = item.sku || item.nama_produk || ''; // fallback: use nama as sku
-        if (!sku) { results.Product.skipped++; continue; }
+        if (!sku) { results.Product.skipped++; results.Product.skippedItems.push({ ...item, _skipReason: 'SKU kosong' }); continue; }
         try {
           await client.query(
             `INSERT INTO products (id, sku, nama_produk, harga, brand)
@@ -346,6 +358,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.Product.failed++;
           results.Product.errors.push(e.message);
+          results.Product.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -353,9 +366,9 @@ router.post('/confirm', async (req, res) => {
     // ---- 5. Import Customers ----
     if (data.Customer && Array.isArray(data.Customer)) {
       for (const item of data.Customer) {
-        if (item._isDuplicate) { results.Customer.skipped++; continue; }
-        const phone = item.no_telepon || '';
-        if (!phone) { results.Customer.skipped++; continue; } // skip if no phone
+        if (item._isDuplicate) { results.Customer.skipped++; results.Customer.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
+        const phone = item.no_telepon || item.phone || '';
+        if (!phone) { results.Customer.skipped++; results.Customer.skippedItems.push({ ...item, _skipReason: 'Nomor HP kosong' }); continue; }
         try {
           await client.query(
             `INSERT INTO customers (id, nama, no_telepon, alamat, provinsi, kota_kab, kecamatan, kode_pos, email, notes, total_orders, last_order_date)
@@ -374,6 +387,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.Customer.failed++;
           results.Customer.errors.push(e.message);
+          results.Customer.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -397,6 +411,7 @@ router.post('/confirm', async (req, res) => {
 
         if (item._isDuplicate) {
           results.Order.skipped++;
+          results.Order.skippedItems.push({ ...item, _skipReason: 'Data Order duplikat di file/DB' });
           continue;
         }
         try {
@@ -437,6 +452,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.Order.failed++;
           results.Order.errors.push(e.message);
+          results.Order.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }
@@ -476,7 +492,9 @@ router.post('/confirm', async (req, res) => {
 
           if (!resolvedOrderId) {
             results.OrderItem.failed++;
-            results.OrderItem.errors.push(`No order_id for: ${item.nama_produk || 'unknown'} (orig: ${origOrderId})`);
+            const errMsg = `No order_id for: ${item.nama_produk || 'unknown'} (orig: ${origOrderId})`;
+            results.OrderItem.errors.push(errMsg);
+            results.OrderItem.failedItems.push({ ...item, _errorReason: errMsg });
             continue;
           }
 
@@ -497,6 +515,7 @@ router.post('/confirm', async (req, res) => {
         } catch (e) {
           results.OrderItem.failed++;
           results.OrderItem.errors.push(e.message);
+          results.OrderItem.failedItems.push({ ...item, _errorReason: e.message });
         }
       }
     }

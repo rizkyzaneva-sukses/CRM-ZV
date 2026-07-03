@@ -1,65 +1,112 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../App';
-import {
-  LayoutDashboard, Package, Users, Truck, Printer, Download,
-  Database, DollarSign, FileText, UserCog, LogOut, FileUp
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { cn } from "@/lib/utils";
+import { 
+  LayoutDashboard, 
+  Plus, 
+  Upload, 
+  Download, 
+  User,
+  FileText,
+  CheckCircle,
+  History,
+  Users,
+  Trash2,
+  BookOpen,
+  Printer,
+  Database
 } from 'lucide-react';
 
-const allMenuItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['OWNER','STAFF','FINANCE','INVENTORI'] },
-  { path: '/InputOrder', label: 'Input Order', icon: Package, roles: ['OWNER','STAFF','FINANCE'] },
-  { path: '/CustomerManagement', label: 'Customers', icon: Users, roles: ['OWNER','STAFF','FINANCE'] },
-  { path: '/FinanceApproval', label: 'Finance Approval', icon: DollarSign, roles: ['OWNER','FINANCE'] },
-  { path: '/UploadResi', label: 'Upload Resi', icon: Truck, roles: ['OWNER','FINANCE','INVENTORI'] },
-  { path: '/PrintResi', label: 'Print Resi', icon: Printer, roles: ['OWNER','FINANCE','INVENTORI'] },
-  { path: '/ExportCenter', label: 'Export Center', icon: Download, roles: ['OWNER','FINANCE','INVENTORI'] },
-  { path: '/MasterData', label: 'Master Data', icon: Database, roles: ['OWNER','FINANCE'] },
-  { path: '/AuditLog', label: 'Audit Log', icon: FileText, roles: ['OWNER','FINANCE','INVENTORI'] },
-  { path: '/UserManagement', label: 'User Management', icon: UserCog, roles: ['OWNER'] },
-  { path: '/ImportData', label: 'Import Data', icon: FileUp, roles: ['OWNER'] },
+const menuItems = [
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard' },
+  { name: 'Input Order', icon: Plus, page: 'InputOrder' },
+  { name: 'Customers', icon: User, page: 'CustomerManagement' },
+  { name: 'Upload Resi', icon: Upload, page: 'UploadResi' },
+  { name: 'Print Resi', icon: Printer, page: 'PrintResi' },
+  { name: 'Export Center', icon: Download, page: 'ExportCenter' },
+  { name: 'Master Data', icon: FileText, page: 'MasterData' },
+  { name: 'Audit Log', icon: History, page: 'AuditLog' },
 ];
 
-export default function Sidebar({ currentPath, customRole }) {
-  const navigate = useNavigate();
-  const { logout } = useAuth();
+const financeMenuItems = [
+  { name: 'Finance Approval', icon: CheckCircle, page: 'FinanceApproval' },
+];
 
-  const menuItems = allMenuItems.filter(item => item.roles.includes(customRole));
+const inventoriMenuItems = [
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard' },
+  { name: 'Upload Resi', icon: Upload, page: 'UploadResi' },
+  { name: 'Print Resi', icon: Printer, page: 'PrintResi' },
+  { name: 'Export Center', icon: Download, page: 'ExportCenter' },
+];
+
+const commonMenuItems = [
+  { name: 'Manual Book', icon: BookOpen, page: 'ManualBook' },
+];
+
+const adminMenuItems = [
+  { name: 'User Management', icon: Users, page: 'UserManagement' },
+];
+
+export default function Sidebar({ currentPage, customRole }) {
+  const isFinance = customRole === 'FINANCE';
+  const isOwner = customRole === 'OWNER';
+  const isStaff = customRole === 'STAFF';
+  const isInventori = customRole === 'INVENTORI';
+
+  const staffMenuItems = menuItems.filter(item => 
+    item.name === 'Dashboard' || item.name === 'Input Order' || item.name === 'Customers'
+  );
+
+  let allMenuItems = [];
+
+  if (isStaff) {
+    allMenuItems = [...staffMenuItems, ...commonMenuItems];
+  } else if (isInventori) {
+    allMenuItems = [...inventoriMenuItems, ...commonMenuItems];
+  } else if (isFinance) {
+    allMenuItems = [...menuItems, ...financeMenuItems, ...commonMenuItems];
+  } else if (isOwner) {
+    allMenuItems = [...menuItems, ...financeMenuItems, ...adminMenuItems, ...commonMenuItems];
+  }
 
   return (
-    <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-      <div className="p-6 border-b border-gray-800">
-        <h1 className="text-xl font-bold text-indigo-400">Zaneva CRM</h1>
-        <p className="text-xs text-gray-500 mt-1">Order Control Center</p>
+    <aside className="hidden lg:flex flex-col w-64 bg-card border-r border-border min-h-screen">
+      <div className="p-6 border-b border-border">
+        <h1 className="text-xl font-bold text-foreground">CRM Order</h1>
+        <p className="text-sm text-muted-foreground mt-1">Control Center</p>
       </div>
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {menuItems.map(item => {
+      
+      <nav className="flex-1 p-4 space-y-1">
+        {allMenuItems.map((item) => {
           const Icon = item.icon;
-          const isActive = currentPath === item.path;
+          const isActive = currentPage === item.page;
+          
           return (
-            <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                isActive
-                  ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-600/30'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-              }`}
+            <Link
+              key={item.page}
+              to={createPageUrl(item.page)}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200",
+                isActive 
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:text-foreground"
+              )}
             >
-              <Icon size={18} />
-              {item.label}
-            </button>
+              <Icon className="w-5 h-5" />
+              <span className="font-medium">{item.name}</span>
+            </Link>
           );
         })}
       </nav>
-      <div className="p-3 border-t border-gray-800">
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:bg-red-900/30 hover:text-red-400 transition-colors"
-        >
-          <LogOut size={18} />
-          Logout
-        </button>
+      
+      <div className="p-4 border-t border-border">
+        <div className="px-4 py-3 rounded-lg bg-muted">
+          <p className="text-xs text-muted-foreground">Role</p>
+          <p className="text-sm font-medium text-foreground">
+            {customRole}
+          </p>
+        </div>
       </div>
     </aside>
   );

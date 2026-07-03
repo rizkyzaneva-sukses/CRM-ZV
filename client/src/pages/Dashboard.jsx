@@ -1,162 +1,444 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../lib/api';
-import { Package, DollarSign, Clock, Truck, CheckCircle } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import StatusBadge from '../components/ui/StatusBadge';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { api } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import StatsCard from '@/components/dashboard/StatsCard';
+import OrdersTable from '@/components/dashboard/OrdersTable';
+import OrderFilters from '@/components/forms/OrderFilters';
+import SalesChart from '@/components/dashboard/SalesChart';
+import StatusPieChart from '@/components/dashboard/StatusPieChart';
+import ShippingPerformance from '@/components/dashboard/ShippingPerformance';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { 
+  Package, 
+  Clock, 
+  CheckCircle, 
+  Truck,
+  Download 
+} from 'lucide-react';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, parseISO } from 'date-fns';
+import { getTodayJakarta, formatInJakarta } from '@/components/utils/dateUtils';
 
-const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4'];
+export default function Dashboard({ user, customRole }) {
+  const isInventori = customRole === 'INVENTORI';
 
-function formatCurrency(n) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
-}
+  const [filters, setFilters] = useState({
+    search: '',
+    dateFrom: '',
+    dateTo: '',
+    status: 'all',
+    jasa: 'all',
+  });
 
-export default function Dashboard() {
-  const navigate = useNavigate();
-  const [stats, setStats] = useState(null);
-  const [salesData, setSalesData] = useState([]);
-  const [statusData, setStatusData] = useState([]);
-  const [shippingData, setShippingData] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const isStaff = customRole === 'STAFF';
+  const today = getTodayJakarta();
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['orders', user?.email, customRole],
+    queryFn: async () => {
+      if (isStaff) {
+        const data = await api.getOrders({ created_by: user?.email, limit: 500 });
+        return data.orders || [];
+      } else {
+        const data = await api.getOrders({ limit: 1000 });
+        return data.orders || [];
+      }
+    },
+    enabled: !!user,
+  });
 
-  async function loadDashboard() {
-    try {
-      const [s, sales, status, shipping, ord] = await Promise.all([
-        api.getDashboardStats(),
-        api.getSalesChart('daily'),
-        api.getStatusDistribution(),
-        api.getShippingPerformance(),
-        api.getOrders({ limit: 20 }),
-      ]);
-      setStats(s);
-      setSalesData(sales.data || []);
-      setStatusData(status.data || []);
-      setShippingData(shipping.data || []);
-      setOrders(ord.orders || []);
-    } catch (err) {
-      console.error('Dashboard error:', err);
-    } finally {
-      setLoading(false);
+  const { data: allOrderItems = [] } = useQuery({
+    queryKey: ['allOrderItems'],
+    queryFn: () => api.getOrderItems({ limit: 5000 }).then(res => res.order_items || []),
+  });
+
+  const { data: shippingServices = [] } = useQuery({
+    queryKey: ['shippingServices'],
+    queryFn: () => api.getShippingServices().then(res => res.shipping_services || []),
+  });
+
+  const stats = useMemo(() => {
+    const todayOrders = orders.filter(o => o.order_date === today);
+    const waitingFinance = orders.filter(o => o.status_pesanan === 'WAITING_FINANCE');
+    const readyToProcess = orders.filter(o => o.status_pesanan === 'READY_TO_PROCESS');
+    const resiUpdated = orders.filter(o => o.status_pesanan === 'RESI_UPDATED');
+
+    return {
+      today: todayOrders.length,
+      waitingFinance: waitingFinance.length,
+      readyToProcess: readyToProcess.length,
+      resiUpdated: resiUpdated.length,
+    };
+  }, [orders, today]);
+
+  // Daily sales data (last 7 days)
+  const dailySalesData = useMemo(() => {
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      const dayOrders = orders.filter(o => o.order_date === date);
+      const total = dayOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+      last7Days.push({
+        name: format(subDays(new Date(), i), 'dd MMM'),
+        total: total,
+        count: dayOrders.length
+      });
     }
+    return last7Days;
+  }, [orders]);
+
+  // Weekly sales data (last 4 weeks)
+  const weeklySalesData = useMemo(() => {
+    const weeks = [];
+    for (let i = 3; i >= 0; i--) {
+      const weekStart = startOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
+      const weekOrders = orders.filter(o => {
+        if (!o.order_date) return false;
+        const orderDate = parseISO(o.order_date);
+        return orderDate >= weekStart && orderDate <= weekEnd;
+      });
+      const total = weekOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+      weeks.push({
+        name: `Week ${i === 0 ? 'Ini' : i + 1}`,
+        total: total,
+        count: weekOrders.length
+      });
+    }
+    return weeks.reverse();
+  }, [orders]);
+
+  // Monthly sales data (last 6 months)
+  const monthlySalesData = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = startOfMonth(subDays(new Date(), i * 30));
+      const monthEnd = endOfMonth(subDays(new Date(), i * 30));
+      const monthOrders = orders.filter(o => {
+        if (!o.order_date) return false;
+        const orderDate = parseISO(o.order_date);
+        return orderDate >= monthStart && orderDate <= monthEnd;
+      });
+      const total = monthOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+      months.push({
+        name: format(monthStart, 'MMM'),
+        total: total,
+        count: monthOrders.length
+      });
+    }
+    return months;
+  }, [orders]);
+
+  // Status distribution
+  const statusData = useMemo(() => {
+    const statusCount = {};
+    orders.forEach(o => {
+      const status = o.status_pesanan || 'DRAFT';
+      statusCount[status] = (statusCount[status] || 0) + 1;
+    });
+    return Object.entries(statusCount).map(([name, value]) => ({ name, value }));
+  }, [orders]);
+
+  // Shipping service performance
+  const shippingData = useMemo(() => {
+    const shippingCount = {};
+    orders.forEach(o => {
+      const jasa = o.jasa_pengiriman || 'unknown';
+      shippingCount[jasa] = (shippingCount[jasa] || 0) + 1;
+    });
+    return Object.entries(shippingCount)
+      .map(([id, value]) => ({ 
+        id, 
+        name: id.toUpperCase(), 
+        value 
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      if (filters.search) {
+        const search = filters.search.toLowerCase();
+        const matchSearch = 
+          (order.nama_pemesan || '').toLowerCase().includes(search) ||
+          (order.no_telepon || '').toLowerCase().includes(search) ||
+          (order.order_number || '').toLowerCase().includes(search);
+        if (!matchSearch) return false;
+      }
+
+      if (filters.dateFrom && order.order_date < filters.dateFrom) {
+        return false;
+      }
+      if (filters.dateTo && order.order_date > filters.dateTo) {
+        return false;
+      }
+
+      if (filters.status !== 'all' && order.status_pesanan !== filters.status) {
+        return false;
+      }
+
+      if (filters.jasa !== 'all' && order.jasa_pengiriman !== filters.jasa) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [orders, filters]);
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      search: '',
+      dateFrom: '',
+      dateTo: '',
+      status: 'all',
+      jasa: 'all',
+    });
+  };
+
+  const handleDownloadOrders = () => {
+    if (filteredOrders.length === 0) {
+      alert('Tidak ada data untuk didownload');
+      return;
+    }
+
+    const csvHeaders = [
+      'No Pesanan',
+      'Nomor Referensi SKU',
+      'Jumlah',
+      'Waktu Pesanan Dibuat',
+      'Status Pesanan',
+      'No. Resi',
+      'Metode Pembayaran',
+      'Harga Setelah Diskon',
+      'ONGKIR',
+      'HARGA AKHIR',
+      'Kota/Kabupaten',
+      'Provinsi',
+      'Platform',
+      'Username (Pembeli)',
+      'Nama Penerima',
+      'No. Telepon',
+      'Alamat Pengiriman',
+      'PLN/INPUT',
+      'Tgl Kirim'
+    ].join(',');
+
+    const csvRows = [];
+    filteredOrders.forEach(order => {
+      const items = allOrderItems.filter(item => item.order_id === order.id);
+      const shippingService = shippingServices.find(s => s.code === order.jasa_pengiriman);
+      const platformName = shippingService ? shippingService.name : (order.jasa_pengiriman || '');
+      
+      if (items.length === 0) {
+        csvRows.push([
+          order.order_number || '',
+          '',
+          '',
+          order.created_date ? formatInJakarta(order.created_date, 'dd/MM/yyyy HH:mm') : '',
+          order.status_pesanan || '',
+          order.no_resi || '',
+          order.metode_pembayaran || '',
+          '',
+          order.ongkir || 0,
+          order.total || 0,
+          order.kota_kab || '',
+          order.provinsi || '',
+          platformName,
+          order.nama_pemesan || '',
+          order.nama_pemesan || '',
+          order.no_telepon || '',
+          `"${(order.alamat || '').replace(/"/g, '""')}"`,
+          order.created_by || '',
+          order.order_date || ''
+        ].join(','));
+      } else {
+        items.forEach(item => {
+          const itemJasa = item.jasa_pengiriman || order.jasa_pengiriman || '';
+          const itemShippingService = shippingServices.find(s => s.code === itemJasa);
+          const itemPlatformName = itemShippingService ? itemShippingService.name : itemJasa;
+          csvRows.push([
+            order.order_number || '',
+            item.sku || '',
+            item.qty || 0,
+            order.created_date ? formatInJakarta(order.created_date, 'dd/MM/yyyy HH:mm') : '',
+            order.status_pesanan || '',
+            order.no_resi || '',
+            order.metode_pembayaran || '',
+            item.harga_setelah_diskon || 0,
+            order.ongkir || 0,
+            order.total || 0,
+            order.kota_kab || '',
+            order.provinsi || '',
+            itemPlatformName,
+            order.nama_pemesan || '',
+            order.nama_pemesan || '',
+            order.no_telepon || '',
+            `"${(order.alamat || '').replace(/"/g, '""')}"`,
+            order.created_by || '',
+            order.order_date || ''
+          ].join(','));
+        });
+      }
+    });
+
+    const csv = [csvHeaders, ...csvRows].join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateLabel = filters.dateFrom ? `_${filters.dateFrom}${filters.dateTo ? '_sd_' + filters.dateTo : ''}` : '';
+    a.download = `orders${dateLabel}_${formatInJakarta(new Date(), 'yyyyMMdd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Tampilan khusus untuk role INVENTORI
+  if (isInventori) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Daftar semua order</p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <OrderFilters
+              filters={filters}
+              onFilterChange={handleFilterChange}
+              onClear={handleClearFilters}
+            />
+            <Button
+              onClick={handleDownloadOrders}
+              disabled={filteredOrders.length === 0}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download ({filteredOrders.length})
+            </Button>
+          </div>
+
+          <OrdersTable orders={filteredOrders} loading={isLoading} customRole={customRole} />
+        </div>
+      </div>
+    );
   }
-
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="text-gray-500">Loading...</div></div>;
-
-  const statCards = [
-    { title: 'Total Orders', value: stats?.total_orders || 0, icon: Package, color: 'text-indigo-400' },
-    { title: 'Total Revenue', value: formatCurrency(stats?.total_revenue), icon: DollarSign, color: 'text-green-400' },
-    { title: 'Pending Finance', value: stats?.pending_finance || 0, icon: Clock, color: 'text-yellow-400' },
-    { title: 'Ready to Process', value: stats?.ready_to_process || 0, icon: Truck, color: 'text-blue-400' },
-    { title: 'Resi Updated', value: stats?.resi_updated || 0, icon: CheckCircle, color: 'text-emerald-400' },
-  ];
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        {statCards.map((card, i) => {
-          const Icon = card.icon;
-          return (
-            <div key={i} className="card">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-400">{card.title}</span>
-                <Icon size={20} className={card.color} />
-              </div>
-              <div className="text-2xl font-bold">{card.value}</div>
-            </div>
-          );
-        })}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-muted-foreground mt-1">
+          {isStaff ? 'Overview order Anda' : 'Overview semua order'}
+        </p>
       </div>
 
-      {/* Charts */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard
+          title="Order Hari Ini"
+          value={stats.today}
+          icon={Package}
+          color="emerald"
+        />
+        <StatsCard
+          title="Waiting Finance"
+          value={stats.waitingFinance}
+          icon={Clock}
+          color="amber"
+        />
+        <StatsCard
+          title="Ready to Process"
+          value={stats.readyToProcess}
+          icon={CheckCircle}
+          color="blue"
+        />
+        <StatsCard
+          title="Resi Updated"
+          value={stats.resiUpdated}
+          icon={Truck}
+          color="purple"
+        />
+      </div>
+
+      {/* Sales Charts */}
+      <Tabs defaultValue="daily" className="space-y-4">
+        <TabsList className="bg-card border border-border">
+          <TabsTrigger 
+            value="daily"
+            className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+          >
+            Harian (7 Hari)
+          </TabsTrigger>
+          <TabsTrigger 
+            value="weekly"
+            className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+          >
+            Mingguan
+          </TabsTrigger>
+          <TabsTrigger 
+            value="monthly"
+            className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+          >
+            Bulanan
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="daily">
+          <SalesChart 
+            data={dailySalesData} 
+            title="Penjualan Harian (7 Hari Terakhir)" 
+          />
+        </TabsContent>
+
+        <TabsContent value="weekly">
+          <SalesChart 
+            data={weeklySalesData} 
+            title="Penjualan Mingguan" 
+          />
+        </TabsContent>
+
+        <TabsContent value="monthly">
+          <SalesChart 
+            data={monthlySalesData} 
+            title="Penjualan Bulanan (6 Bulan Terakhir)" 
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Performance Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Sales (Last 30 Days)</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={salesData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-              <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3e' }} />
-              <Bar dataKey="revenue" fill="#6366f1" radius={[4,4,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Order Status Distribution</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie data={statusData} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={80} label>
-                {statusData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3e' }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        <StatusPieChart 
+          data={statusData} 
+          title="Distribusi Status Pesanan" 
+        />
+        <ShippingPerformance 
+          data={shippingData} 
+          title="Performa Jasa Pengiriman" 
+        />
       </div>
 
-      {/* Orders Table */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">Recent Orders</h3>
-          <div className="flex gap-2">
-            <input
-              placeholder="Search orders..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="input-field w-64"
-            />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input-field w-40">
-              <option value="">All Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="WAITING_FINANCE">Waiting Finance</option>
-              <option value="READY_TO_PROCESS">Ready to Process</option>
-              <option value="RESI_UPDATED">Resi Updated</option>
-              <option value="REJECTED">Rejected</option>
-            </select>
-          </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <OrderFilters
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            onClear={handleClearFilters}
+          />
+          <Button
+            onClick={handleDownloadOrders}
+            disabled={filteredOrders.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Download ({filteredOrders.length})
+          </Button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800">
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Order #</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Customer</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Date</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Type</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Shipping</th>
-                <th className="text-right py-3 px-2 text-gray-400 font-medium">Total</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Status</th>
-                <th className="text-left py-3 px-2 text-gray-400 font-medium">Resi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.filter(o => {
-                if (search && !o.nama_pemesan?.toLowerCase().includes(search.toLowerCase()) && !o.order_number?.toLowerCase().includes(search.toLowerCase())) return false;
-                if (statusFilter && o.status_pesanan !== statusFilter) return false;
-                return true;
-              }).map(order => (
-                <tr key={order.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer" onClick={() => navigate(`/OrderDetail?id=${order.id}`)}>
-                  <td className="py-3 px-2 text-indigo-400">{order.order_number}</td>
-                  <td className="py-3 px-2">{order.nama_pemesan}</td>
-                  <td className="py-3 px-2 text-gray-400">{order.order_date?.slice(0, 10)}</td>
-                  <td className="py-3 px-2"><span className={`badge ${order.jenis_transaksi === 'COD' ? 'badge-yellow' : 'badge-blue'}`}>{order.jenis_transaksi}</span></td>
-                  <td className="py-3 px-2 text-gray-400">{order.jasa_pengiriman}</td>
-                  <td className="py-3 px-2 text-right">{formatCurrency(order.total)}</td>
-                  <td className="py-3 px-2"><StatusBadge status={order.status_pesanan} /></td>
-                  <td className="py-3 px-2 text-gray-400 font-mono text-xs">{order.no_resi || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+        <OrdersTable orders={filteredOrders} loading={isLoading} customRole={customRole} />
       </div>
     </div>
   );

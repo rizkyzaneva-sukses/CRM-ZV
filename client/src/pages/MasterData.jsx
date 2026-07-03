@@ -1,185 +1,1243 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../lib/api';
-import { Upload, Plus, Trash2, Edit, Save, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { api } from '@/lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { 
+  Upload, 
+  Loader2,
+  Trash2,
+  Database,
+  MapPin,
+  Download,
+  AlertCircle,
+  CheckCircle,
+  Truck,
+  Package,
+  Plus,
+  X,
+  Pencil
+} from 'lucide-react';
+import ShippingServiceManagement from '@/components/forms/ShippingServiceManagement';
+import * as XLSX from 'xlsx';
 
-const tabs = ['Products', 'Kecamatan SAP', 'Kecamatan JNT', 'Shipping Services'];
+// Product-specific upload section with Edit button
+const ProductUploadSection = React.memo(({
+  data,
+  searchKey,
+  searchInputs,
+  searchTerms,
+  setSearchInputs,
+  uploading,
+  uploadProgress,
+  deleting,
+  deleteProgress,
+  onUpload,
+  onDeleteAll,
+  onDeleteSingle,
+  downloadErrorLog,
+  deleteSingleMutation,
+  onEdit
+}) => {
+  const searchInput = searchInputs[searchKey] || '';
+  const searchTerm = searchTerms[searchKey] || '';
 
-export default function MasterData() {
-  const [activeTab, setActiveTab] = useState('Products');
-  const [products, setProducts] = useState([]);
-  const [services, setServices] = useState([]);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({});
-  const [newProduct, setNewProduct] = useState({ sku: '', nama_produk: '', harga: '', brand: '' });
-
-  useEffect(() => {
-    if (activeTab === 'Products') loadProducts();
-    if (activeTab === 'Shipping Services') loadServices();
-  }, [activeTab]);
-
-  async function loadProducts() {
-    try {
-      const data = await api.getProducts({ limit: 500 });
-      setProducts(data.products || []);
-    } catch (err) { console.error(err); }
-  }
-
-  async function loadServices() {
-    try {
-      const data = await api.getShippingServices();
-      setServices(data.services || []);
-    } catch (err) { console.error(err); }
-  }
-
-  async function handleUpload(entity) {
-    if (!uploadFile) return;
-    setUploading(true);
-    try {
-      const endpoint = entity === 'Products' ? 'products' : entity === 'Kecamatan SAP' ? 'kecamatan-sap' : 'kecamatan-jnt';
-      const result = await api.uploadFile(endpoint, uploadFile);
-      alert(`Upload complete: ${result.success} success, ${result.skipped} skipped, ${result.failed} failed`);
-      setUploadFile(null);
-      if (entity === 'Products') loadProducts();
-    } catch (err) {
-      alert('Upload error: ' + err.message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function addProduct() {
-    if (!newProduct.nama_produk || !newProduct.harga) return;
-    try {
-      await api.createProduct(newProduct);
-      setNewProduct({ sku: '', nama_produk: '', harga: '', brand: '' });
-      loadProducts();
-    } catch (err) { alert(err.message); }
-  }
-
-  async function saveProduct(id) {
-    try {
-      await api.updateProduct(id, editForm);
-      setEditId(null);
-      loadProducts();
-    } catch (err) { alert(err.message); }
-  }
-
-  async function deleteProduct(id) {
-    if (!confirm('Delete this product?')) return;
-    try {
-      await api.deleteProduct(id);
-      loadProducts();
-    } catch (err) { alert(err.message); }
-  }
+  const filteredData = React.useMemo(() => {
+    if (!searchTerm) return data;
+    return data.filter(item => {
+      const search = searchTerm.toLowerCase();
+      return ['sku', 'nama_produk', 'harga', 'brand'].some(field => {
+        const value = item[field];
+        return value && String(value).toLowerCase().includes(search);
+      });
+    });
+  }, [data, searchTerm]);
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold">Master Data</h2>
-
-      <div className="flex gap-2 border-b border-gray-800 pb-2">
-        {tabs.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-t-lg text-sm ${activeTab === tab ? 'bg-gray-800 text-indigo-400' : 'text-gray-400 hover:text-gray-200'}`}>
-            {tab}
-          </button>
-        ))}
+    <Card className="bg-card border-border p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+          <Package className="w-6 h-6 text-emerald-400" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-foreground">Database Produk</h3>
+          <p className="text-sm text-muted-foreground">{data.length.toLocaleString()} records</p>
+        </div>
       </div>
 
-      {/* Upload Section */}
-      {['Products', 'Kecamatan SAP', 'Kecamatan JNT'].includes(activeTab) && (
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-400 mb-3">Upload Excel</h3>
-          <div className="flex items-center gap-4">
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={e => setUploadFile(e.target.files[0])} className="text-sm text-gray-400" />
-            <button onClick={() => handleUpload(activeTab)} className="btn-primary flex items-center gap-2" disabled={!uploadFile || uploading}>
-              <Upload size={16} /> {uploading ? 'Uploading...' : 'Upload'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Products Tab */}
-      {activeTab === 'Products' && (
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <input placeholder="SKU" value={newProduct.sku} onChange={e => setNewProduct({...newProduct, sku: e.target.value})} className="input-field w-32" />
-            <input placeholder="Product Name" value={newProduct.nama_produk} onChange={e => setNewProduct({...newProduct, nama_produk: e.target.value})} className="input-field flex-1" />
-            <input placeholder="Price" type="number" value={newProduct.harga} onChange={e => setNewProduct({...newProduct, harga: e.target.value})} className="input-field w-32" />
-            <input placeholder="Brand" value={newProduct.brand} onChange={e => setNewProduct({...newProduct, brand: e.target.value})} className="input-field w-32" />
-            <button onClick={addProduct} className="btn-primary"><Plus size={16} /></button>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800">
-                <th className="text-left py-2 text-gray-400">SKU</th>
-                <th className="text-left py-2 text-gray-400">Name</th>
-                <th className="text-right py-2 text-gray-400">Price</th>
-                <th className="text-left py-2 text-gray-400">Brand</th>
-                <th className="text-center py-2 text-gray-400">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map(p => (
-                <tr key={p.id} className="border-b border-gray-800/50">
-                  {editId === p.id ? (
-                    <>
-                      <td className="py-2"><input value={editForm.sku} onChange={e => setEditForm({...editForm, sku: e.target.value})} className="input-field" /></td>
-                      <td className="py-2"><input value={editForm.nama_produk} onChange={e => setEditForm({...editForm, nama_produk: e.target.value})} className="input-field" /></td>
-                      <td className="py-2"><input type="number" value={editForm.harga} onChange={e => setEditForm({...editForm, harga: e.target.value})} className="input-field" /></td>
-                      <td className="py-2"><input value={editForm.brand} onChange={e => setEditForm({...editForm, brand: e.target.value})} className="input-field" /></td>
-                      <td className="py-2 text-center">
-                        <button onClick={() => saveProduct(p.id)} className="text-green-400 mr-2"><Save size={16} /></button>
-                        <button onClick={() => setEditId(null)} className="text-gray-400"><X size={16} /></button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="py-2 text-gray-400">{p.sku}</td>
-                      <td className="py-2">{p.nama_produk}</td>
-                      <td className="py-2 text-right">{new Intl.NumberFormat('id-ID').format(p.harga)}</td>
-                      <td className="py-2 text-gray-400">{p.brand}</td>
-                      <td className="py-2 text-center">
-                        <button onClick={() => { setEditId(p.id); setEditForm({ sku: p.sku, nama_produk: p.nama_produk, harga: p.harga, brand: p.brand }); }} className="text-indigo-400 mr-2"><Edit size={16} /></button>
-                        <button onClick={() => deleteProduct(p.id)} className="text-red-400"><Trash2 size={16} /></button>
-                      </td>
-                    </>
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="upload-Product" className="text-muted-foreground">Upload File Excel (.xlsx, .csv)</Label>
+          <div className="flex gap-2 mt-2">
+            <Input
+              id="upload-Product"
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => { if (e.target.files[0]) { onUpload('Product', e.target.files[0]); e.target.value = ''; } }}
+              disabled={uploading === 'Product'}
+              className="bg-muted border-border text-foreground"
+            />
+            {uploading === 'Product' && (
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2 px-4 py-2 bg-muted border border-emerald-500/30 rounded-md">
+                  <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                  {uploadProgress.total > 0 && (
+                    <div className="flex-1 flex items-center gap-4 text-sm">
+                      <span className="text-emerald-400 font-semibold">{uploadProgress.current} / {uploadProgress.total}</span>
+                      <span className="text-muted-foreground">✓ {uploadProgress.inserted} | ⚠ {uploadProgress.skipped} | ✗ {uploadProgress.failed}</span>
+                    </div>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+                {uploadProgress.total > 0 && (
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }} />
+                  </div>
+                )}
+              </div>
+            )}
+            {!uploading && uploadProgress.errors.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-md">
+                  <AlertCircle className="w-4 h-4 text-red-400" />
+                  <span className="text-sm text-red-400">{uploadProgress.failed} gagal, {uploadProgress.skipped} dilewati</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={downloadErrorLog} className="w-full border-border text-red-400 hover:bg-red-500/10">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Error Log ({uploadProgress.errors.length} baris)
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Shipping Services Tab */}
-      {activeTab === 'Shipping Services' && (
-        <div className="card">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800">
-                <th className="text-left py-2 text-gray-400">Name</th>
-                <th className="text-left py-2 text-gray-400">Code</th>
-                <th className="text-left py-2 text-gray-400">Platform</th>
-                <th className="text-center py-2 text-gray-400">Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map(s => (
-                <tr key={s.id} className="border-b border-gray-800/50">
-                  <td className="py-2">{s.name}</td>
-                  <td className="py-2 text-gray-400 font-mono">{s.code}</td>
-                  <td className="py-2 text-gray-400">{s.platform}</td>
-                  <td className="py-2 text-center">
-                    <span className={`badge ${s.is_active ? 'badge-green' : 'badge-red'}`}>{s.is_active ? 'Active' : 'Inactive'}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {data.length > 0 && (
+          <>
+            <div className="mb-4">
+              <Input
+                placeholder="Cari database produk..."
+                value={searchInput}
+                onChange={(e) => setSearchInputs(prev => ({ ...prev, [searchKey]: e.target.value }))}
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="flex justify-end items-center gap-3">
+              {deleting === 'Product' && deleteProgress.total > 0 && (
+                <div className="flex items-center gap-2 text-sm text-red-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Menghapus {deleteProgress.current} / {deleteProgress.total}
+                </div>
+              )}
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => { if (confirm('Hapus semua data? Tindakan ini tidak dapat dibatalkan.')) onDeleteAll('Product'); }}
+                disabled={deleting === 'Product'}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Hapus Semua Data
+              </Button>
+            </div>
+
+            <div className="border border-border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto max-h-64">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border">
+                      <TableHead className="text-foreground">SKU</TableHead>
+                      <TableHead className="text-foreground">Nama Produk</TableHead>
+                      <TableHead className="text-foreground">Harga</TableHead>
+                      <TableHead className="text-foreground">Brand</TableHead>
+                      <TableHead className="text-foreground w-24">Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredData.slice(0, 10).map((item, index) => (
+                      <TableRow key={item.id || index} className="border-border">
+                        <TableCell className="text-foreground text-sm">{item.sku || '—'}</TableCell>
+                        <TableCell className="text-foreground text-sm">{item.nama_produk || '—'}</TableCell>
+                        <TableCell className="text-foreground text-sm">{item.harga || '—'}</TableCell>
+                        <TableCell className="text-foreground text-sm">{item.brand || '—'}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onEdit({ id: item.id, sku: item.sku || '', nama_produk: item.nama_produk || '', harga: item.harga || '', brand: item.brand || '' })}
+                              className="h-7 w-7 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { if (confirm('Hapus data ini?')) onDeleteSingle({ entityName: 'Product', id: item.id }); }}
+                              disabled={deleteSingleMutation.isPending}
+                              className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {filteredData.length > 10 && (
+                <div className="p-2 bg-muted border-t border-border text-center text-sm text-muted-foreground">
+                  Menampilkan 10 dari {filteredData.length} data {searchInput && `(filtered from ${data.length} total)`}
+                </div>
+              )}
+              {filteredData.length === 0 && searchInput && (
+                <div className="p-4 bg-muted border-t border-border text-center text-sm text-muted-foreground">
+                  Tidak ada hasil untuk "{searchInput}"
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+});
+ProductUploadSection.displayName = 'ProductUploadSection';
+
+// Extract UploadSection outside to prevent re-mounting
+const UploadSection = React.memo(({ 
+  title, 
+  entityName, 
+  data, 
+  icon: Icon, 
+  columns, 
+  searchKey,
+  searchInputs,
+  searchTerms,
+  setSearchInputs,
+  uploading,
+  uploadProgress,
+  deleting,
+  deleteProgress,
+  onUpload,
+  onDeleteAll,
+  onDeleteSingle,
+  downloadErrorLog,
+  deleteSingleMutation
+}) => {
+  const searchInput = searchInputs[searchKey] || '';
+  const searchTerm = searchTerms[searchKey] || '';
+  
+  const filteredData = React.useMemo(() => {
+    if (!searchTerm) return data;
+    return data.filter(item => {
+      const search = searchTerm.toLowerCase();
+      return columns.some(col => {
+        const fieldName = col.toLowerCase().replace(/\s+/g, '_').replace('/', '_');
+        const value = item[fieldName];
+        return value && String(value).toLowerCase().includes(search);
+      });
+    });
+  }, [data, searchTerm, columns]);
+
+  return (
+    <Card className="bg-card border-border p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+          <Icon className="w-6 h-6 text-emerald-400" />
         </div>
-      )}
+        <div>
+          <h3 className="font-semibold text-foreground">{title}</h3>
+          <p className="text-sm text-muted-foreground">
+            {data.length.toLocaleString()} records
+            {data.length >= 10000 && <span className="text-yellow-400"> (showing max 10K)</span>}
+            {data.length >= 5000 && data.length < 10000 && <span className="text-emerald-400"> ✓ All data accessible in search</span>}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor={`upload-${entityName}`} className="text-muted-foreground">
+            Upload File Excel (.xlsx, .csv)
+          </Label>
+          <div className="flex gap-2 mt-2">
+          <Input
+            id={`upload-${entityName}`}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={(e) => {
+              if (e.target.files[0]) {
+                onUpload(entityName, e.target.files[0]);
+                e.target.value = '';
+              }
+            }}
+            disabled={uploading === entityName}
+            className="bg-muted border-border text-foreground"
+          />
+          {uploading === entityName && (
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2 px-4 py-2 bg-muted border border-emerald-500/30 rounded-md">
+                <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                {uploadProgress.total > 0 && (
+                  <div className="flex-1 flex items-center gap-4 text-sm">
+                    <span className="text-emerald-400 font-semibold">
+                      {uploadProgress.current} / {uploadProgress.total}
+                    </span>
+                    <span className="text-muted-foreground">
+                      ✓ {uploadProgress.inserted} | 
+                      ⚠ {uploadProgress.skipped} | 
+                      ✗ {uploadProgress.failed}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {uploadProgress.total > 0 && (
+                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="h-full bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          {!uploading && uploadProgress.errors.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-md">
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <span className="text-sm text-red-400">
+                  {uploadProgress.failed} data gagal, {uploadProgress.skipped} dilewati
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadErrorLog}
+                className="w-full border-border text-red-400 hover:bg-red-500/10"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Error Log ({uploadProgress.errors.length} baris)
+              </Button>
+            </div>
+          )}
+          </div>
+        </div>
+
+        {data.length > 0 && (
+        <>
+          <div className="mb-4">
+            <Input
+              placeholder={`Cari ${title.toLowerCase()}...`}
+              value={searchInput}
+              onChange={(e) => setSearchInputs(prev => ({ ...prev, [searchKey]: e.target.value }))}
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="flex justify-end items-center gap-3">
+            {deleting === entityName && deleteProgress.total > 0 && (
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Menghapus {deleteProgress.current} / {deleteProgress.total}
+              </div>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (confirm('Hapus semua data? Tindakan ini tidak dapat dibatalkan.')) {
+                  onDeleteAll(entityName);
+                }
+              }}
+              disabled={deleting === entityName}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Hapus Semua Data
+            </Button>
+          </div>
+
+          <div className="border border-border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto max-h-64">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border">
+                    {columns.map((col) => (
+                      <TableHead key={col} className="text-foreground whitespace-nowrap">
+                        {col}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-foreground whitespace-nowrap w-20">
+                      Aksi
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredData.slice(0, 10).map((item, index) => (
+                    <TableRow key={item.id || index} className="border-border">
+                      {columns.map((col) => (
+                        <TableCell key={col} className="text-foreground text-sm">
+                          {item[col.toLowerCase().replace(/\s+/g, '_').replace('/', '_')] || '—'}
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (confirm('Hapus data ini?')) {
+                              onDeleteSingle({ entityName, id: item.id });
+                            }
+                          }}
+                          disabled={deleteSingleMutation.isPending}
+                          className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {filteredData.length > 10 && (
+              <div className="p-2 bg-muted border-t border-border text-center text-sm text-muted-foreground">
+                Menampilkan 10 dari {filteredData.length} data {searchInput && `(filtered from ${data.length} total)`}
+              </div>
+            )}
+            {filteredData.length === 0 && searchInput && (
+              <div className="p-4 bg-muted border-t border-border text-center text-sm text-muted-foreground">
+                Tidak ada hasil untuk "{searchInput}"
+              </div>
+            )}
+          </div>
+        </>
+        )}
+      </div>
+    </Card>
+  );
+});
+
+UploadSection.displayName = 'UploadSection';
+
+const EMPTY_PRODUCT = { sku: '', nama_produk: '', harga: '', brand: '' };
+
+export default function MasterData({ user, userRole }) {
+  const queryClient = useQueryClient();
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState(EMPTY_PRODUCT);
+  const [addingProduct, setAddingProduct] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null); // { id, sku, nama_produk, harga, brand }
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [uploading, setUploading] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState({ 
+    current: 0, 
+    total: 0, 
+    inserted: 0,
+    skipped: 0,
+    failed: 0,
+    errors: []
+  });
+  const [searchInputs, setSearchInputs] = useState({
+    product: '',
+    sap: '',
+    jnt: ''
+  });
+  const [searchTerms, setSearchTerms] = useState({
+    product: '',
+    sap: '',
+    jnt: ''
+  });
+
+  // Debounce search - separate timeout for each key
+  const debounceTimers = React.useRef({});
+
+  React.useEffect(() => {
+    Object.keys(searchInputs).forEach(key => {
+      // Clear existing timeout for this specific key
+      if (debounceTimers.current[key]) {
+        clearTimeout(debounceTimers.current[key]);
+      }
+      // Set new timeout for this specific key
+      debounceTimers.current[key] = setTimeout(() => {
+        setSearchTerms(prev => ({ ...prev, [key]: searchInputs[key] }));
+      }, 300);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      Object.values(debounceTimers.current).forEach(timer => clearTimeout(timer));
+    };
+  }, [searchInputs]);
+
+  // Queries
+  const { data: products = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => api.getProducts({ limit: 10000 }).then(res => res.products || []),
+  });
+
+  const { data: kecamatanSAP = [] } = useQuery({
+    queryKey: ['kecamatanSAP'],
+    queryFn: () => api.getSapKecamatans({ limit: 10000 }).then(res => res.data || []),
+  });
+
+  const { data: kecamatanJNT = [] } = useQuery({
+    queryKey: ['kecamatanJNT'],
+    queryFn: () => api.getJntKecamatans({ limit: 10000 }).then(res => res.data || []),
+  });
+
+  // Retry with exponential backoff
+  const retryWithBackoff = async (fn, retries = 3, delay = 1000) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+      }
+    }
+  };
+
+  // Check for duplicates
+  const removeDuplicates = (data, entityName) => {
+    const seen = new Set();
+    const unique = [];
+    const duplicates = [];
+
+    data.forEach((item, index) => {
+      let key;
+      if (entityName === 'KecamatanSAP') {
+        key = item.kode;
+      } else if (entityName === 'KecamatanJNT') {
+        key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
+      } else if (entityName === 'Product') {
+        key = item.sku || item.nama_produk;
+      }
+
+      if (seen.has(key)) {
+        duplicates.push({ ...item, _rowNumber: index + 2 });
+      } else {
+        seen.add(key);
+        unique.push(item);
+      }
+    });
+
+    return { unique, duplicates };
+  };
+
+  const handleUpload = async (entityName, file) => {
+    setUploading(entityName);
+    setUploadProgress({ 
+      current: 0, 
+      total: 0, 
+      inserted: 0,
+      skipped: 0,
+      failed: 0,
+      errors: []
+    });
+    
+    try {
+      // Read Excel file (client-side parsing)
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (rawData.length === 0) {
+        alert('File kosong atau format tidak sesuai');
+        return;
+      }
+
+      // Transform data based on entity
+      let transformedData = [];
+      let invalidRows = [];
+      
+      if (entityName === 'Product') {
+        rawData.forEach((row, idx) => {
+          const item = {
+            sku: String(row['SKU'] || row['sku'] || ''),
+            nama_produk: String(row['Nama Produk'] || row['nama_produk'] || row['NAMA PRODUK'] || ''),
+            harga: parseFloat(row['Harga'] || row['harga'] || row['HARGA'] || 0),
+            brand: String(row['Brand'] || row['brand'] || row['BRAND'] || '')
+          };
+          if (item.nama_produk) {
+            transformedData.push(item);
+          } else {
+            invalidRows.push({ row: idx + 2, reason: 'Nama produk kosong', data: row });
+          }
+        });
+      } else if (entityName === 'KecamatanSAP') {
+        rawData.forEach((row, idx) => {
+          const item = {
+            kode: String(row['KODE KECAMATAN'] || row['kode'] || ''),
+            kecamatan: String(row['KECAMATAN'] || row['Kecamatan'] || row['kecamatan'] || ''),
+            kota_kab: String(row['KOTA/KAB'] || row['Kota/Kab'] || row['kota_kab'] || ''),
+            provinsi: String(row['PROVINSI'] || row['Provinsi'] || row['provinsi'] || ''),
+            status_tercover: String(row['Tercover / Tidak'] || row['status_tercover'] || row['STATUS_TERCOVER'] || '')
+          };
+          if (item.kecamatan && item.provinsi && item.kode) {
+            transformedData.push(item);
+          } else {
+            invalidRows.push({ row: idx + 2, reason: 'Data tidak lengkap', data: row });
+          }
+        });
+      } else if (entityName === 'KecamatanJNT') {
+        rawData.forEach((row, idx) => {
+          const item = {
+            provinsi: String(row['Provinsi'] || row['provinsi'] || row['PROVINSI'] || ''),
+            kota_kab: String(row['Kota'] || row['kota'] || row['KOTA'] || row['Kota/Kab'] || ''),
+            kecamatan: String(row['Kecamatan'] || row['kecamatan'] || row['KECAMATAN'] || '')
+          };
+          if (item.kecamatan && item.provinsi) {
+            transformedData.push(item);
+          } else {
+            invalidRows.push({ row: idx + 2, reason: 'Data tidak lengkap', data: row });
+          }
+        });
+      }
+
+      if (transformedData.length === 0) {
+        alert('Tidak ada data valid. Pastikan header kolom sesuai format.');
+        return;
+      }
+
+      // Remove duplicates within file
+      const { unique, duplicates } = removeDuplicates(transformedData, entityName);
+      
+      let inserted = 0;
+      let failed = 0;
+      const errors = [...invalidRows, ...duplicates.map(d => ({ 
+        row: d._rowNumber, 
+        reason: 'Duplikat dalam file', 
+        data: d 
+      }))];
+
+      setUploadProgress({ 
+        current: 0, 
+        total: unique.length,
+        inserted: 0,
+        skipped: duplicates.length + invalidRows.length,
+        failed: 0,
+        errors
+      });
+
+      // Check existing data to avoid duplicates on re-upload
+      let existingData = [];
+      if (entityName === 'Product') {
+        const res = await api.getProducts({ limit: 50000 });
+        existingData = res.products || [];
+      } else if (entityName === 'KecamatanSAP') {
+        const res = await api.getSapKecamatans({ limit: 50000 });
+        existingData = res.data || [];
+      } else if (entityName === 'KecamatanJNT') {
+        const res = await api.getJntKecamatans({ limit: 50000 });
+        existingData = res.data || [];
+      }
+      const existingKeys = new Set();
+      
+      existingData.forEach(item => {
+        let key;
+        if (entityName === 'KecamatanSAP') {
+          key = item.kode;
+        } else if (entityName === 'KecamatanJNT') {
+          key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
+        } else if (entityName === 'Product') {
+          key = item.sku || item.nama_produk;
+        }
+        if (key) existingKeys.add(key);
+      });
+      
+      // Filter out items that already exist in database
+      const toInsert = unique.filter(item => {
+        let key;
+        if (entityName === 'KecamatanSAP') {
+          key = item.kode;
+        } else if (entityName === 'KecamatanJNT') {
+          key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
+        } else if (entityName === 'Product') {
+          key = item.sku || item.nama_produk;
+        }
+        return !existingKeys.has(key);
+      });
+      
+      const alreadyExists = unique.length - toInsert.length;
+      
+      setUploadProgress(prev => ({ 
+        ...prev,
+        total: toInsert.length,
+        skipped: prev.skipped + alreadyExists
+      }));
+      
+      // Insert one by one to avoid timeout issues
+      for (let i = 0; i < toInsert.length; i++) {
+        const item = toInsert[i];
+        
+        try {
+          // Retry with exponential backoff
+          await retryWithBackoff(async () => {
+            if (entityName === 'Product') {
+              await api.createProduct(item);
+            } else if (entityName === 'KecamatanSAP') {
+              await api.createSapKecamatan(item);
+            } else if (entityName === 'KecamatanJNT') {
+              await api.createJntKecamatan(item);
+            }
+          }, 3, 1000);
+          
+          inserted++;
+          setUploadProgress(prev => ({ 
+            ...prev,
+            current: i + 1, 
+            inserted
+          }));
+        } catch (error) {
+          console.error(`Row ${i + 1} failed:`, error);
+          failed++;
+          errors.push({ 
+            row: i + 2, 
+            reason: error.message, 
+            data: item 
+          });
+          setUploadProgress(prev => ({ 
+            ...prev,
+            failed,
+            errors
+          }));
+        }
+        
+        // Small delay between inserts (every 10 records)
+        if ((i + 1) % 10 === 0 && i < toInsert.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      queryClient.invalidateQueries(['products', 'kecamatanSAP', 'kecamatanJNT']);
+      
+      // Save to audit log
+      const auditStatus = failed > 0 ? 'PARTIAL' : 'SUCCESS';
+      try {
+        // Audit logs are no longer recorded on client side directly
+        // The backend should record them if needed
+      } catch (auditError) {
+        console.error('Failed to save audit log:', auditError);
+      }
+      
+      const summary = `
+✅ Import Selesai!
+━━━━━━━━━━━━━━━━
+📊 Total Baris: ${rawData.length}
+✓ Berhasil: ${inserted}
+⚠ Dilewati: ${duplicates.length + invalidRows.length + alreadyExists}
+✗ Gagal: ${failed}
+
+${failed > 0 ? '⚠ Ada error, klik "Download Error Log" untuk detail' : ''}
+      `;
+      
+      alert(summary);
+      
+    } catch (error) {
+      console.error('Error uploading:', error);
+      
+      // Save failed audit log
+      try {
+        // Audit logs are no longer recorded on client side directly
+      } catch (auditError) {
+        console.error('Failed to save audit log:', auditError);
+      }
+      
+      alert('❌ Error upload file: ' + error.message);
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  // Download error log
+  const downloadErrorLog = () => {
+    if (uploadProgress.errors.length === 0) return;
+    
+    // Create detailed CSV with all data fields
+    const headers = ['Baris', 'Status', 'Alasan'];
+    const firstError = uploadProgress.errors[0];
+    if (firstError && firstError.data) {
+      const dataKeys = Object.keys(firstError.data).filter(k => !k.startsWith('_'));
+      headers.push(...dataKeys);
+    }
+    
+    const rows = uploadProgress.errors.map(err => {
+      const row = [
+        err.row || '',
+        err.reason?.includes('Duplikat') ? 'DILEWATI' : 'GAGAL',
+        err.reason || ''
+      ];
+      
+      if (err.data) {
+        const dataKeys = Object.keys(firstError.data).filter(k => !k.startsWith('_'));
+        dataKeys.forEach(key => {
+          row.push(err.data[key] || '');
+        });
+      }
+      
+      return row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',');
+    });
+    
+    const csv = [headers.join(','), ...rows].join('\n');
+    
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `error_log_${Date.now()}.csv`;
+    a.click();
+  };
+
+  const [deleting, setDeleting] = useState(null);
+  const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
+
+  const handleDeleteAll = async (entityName) => {
+    setDeleting(entityName);
+    
+    try {
+      let items = [];
+      if (entityName === 'Product') {
+        const res = await api.getProducts({ limit: 50000 });
+        items = res.products || [];
+      } else if (entityName === 'KecamatanSAP') {
+        const res = await api.getSapKecamatans({ limit: 50000 });
+        items = res.data || [];
+      } else if (entityName === 'KecamatanJNT') {
+        const res = await api.getJntKecamatans({ limit: 50000 });
+        items = res.data || [];
+      }
+      
+      if (items.length === 0) {
+        alert('Tidak ada data untuk dihapus');
+        setDeleting(null);
+        return;
+      }
+      
+      setDeleteProgress({ current: 0, total: items.length });
+      
+      let deleted = 0;
+      let skipped = 0;
+      const BATCH_SIZE = 20;
+      
+      // Delete in parallel batches
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const batch = items.slice(i, i + BATCH_SIZE);
+        
+        const results = await Promise.allSettled(
+          batch.map(item => {
+            if (entityName === 'Product') return api.deleteProduct(item.id);
+            if (entityName === 'KecamatanSAP') return api.deleteSapKecamatan(item.id);
+            if (entityName === 'KecamatanJNT') return api.deleteJntKecamatan(item.id);
+          })
+        );
+        
+        results.forEach(r => r.status === 'fulfilled' ? deleted++ : skipped++);
+        setDeleteProgress({ current: i + batch.length, total: items.length });
+      }
+      
+      // Save to audit log
+      try {
+        // Audit logs not implemented directly here  failed_count: skipped,
+      } catch (auditError) {
+        console.error('Failed to save audit log:', auditError);
+      }
+      
+      queryClient.invalidateQueries(['products', 'kecamatanSAP', 'kecamatanJNT']);
+      alert(`✅ Selesai!\nDihapus: ${deleted}\nDilewati: ${skipped}`);
+      
+    } catch (error) {
+      alert('❌ Error: ' + error.message);
+    } finally {
+      setDeleting(null);
+      setDeleteProgress({ current: 0, total: 0 });
+    }
+  };
+
+  const deleteSingleMutation = useMutation({
+    mutationFn: async ({ entityName, id }) => {
+      if (entityName === 'Product') await api.deleteProduct(id);
+      if (entityName === 'KecamatanSAP') await api.deleteSapKecamatan(id);
+      if (entityName === 'KecamatanJNT') await api.deleteJntKecamatan(id);
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries([variables.entityName.toLowerCase()]);
+    }
+  });
+
+  const downloadTemplate = (entityName) => {
+    let rows = [];
+    if (entityName === 'Product') {
+      rows = [
+        ['SKU', 'Nama Produk', 'Harga', 'Brand'],
+        ['SKU-001', 'Contoh Produk A', 50000, 'BrandA'],
+        ['SKU-002', 'Contoh Produk B', 75000, 'BrandB'],
+      ];
+    } else if (entityName === 'KecamatanSAP') {
+      rows = [
+        ['KODE KECAMATAN', 'KECAMATAN', 'KOTA/KAB', 'PROVINSI', 'Tercover / Tidak'],
+        ['10010101', 'GAMBIR', 'JAKARTA PUSAT', 'DKI JAKARTA', 'Ya'],
+        ['10010102', 'SAWAH BESAR', 'JAKARTA PUSAT', 'DKI JAKARTA', 'Tidak'],
+      ];
+    } else if (entityName === 'KecamatanJNT') {
+      rows = [
+        ['Provinsi', 'Kota', 'Kecamatan'],
+        ['DKI JAKARTA', 'JAKARTA PUSAT', 'GAMBIR'],
+        ['DKI JAKARTA', 'JAKARTA PUSAT', 'SAWAH BESAR'],
+      ];
+    }
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `template_${entityName.toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Master Data</h1>
+        <p className="text-muted-foreground mt-1">
+          Upload dan kelola database produk dan alamat tujuan
+        </p>
+      </div>
+
+      <Tabs defaultValue="product" className="space-y-4">
+        <TabsList className="bg-card border border-border flex-wrap h-auto">
+          <TabsTrigger value="product" className="data-[state=active]:bg-emerald-500/20">
+            <Package className="w-4 h-4 mr-2" />
+            <span className="hidden sm:inline">Produk</span>
+            <span className="sm:hidden">Produk</span>
+          </TabsTrigger>
+          <TabsTrigger value="shipping" className="data-[state=active]:bg-emerald-500/20">
+            <Truck className="w-4 h-4 mr-2" />
+            <span className="hidden sm:inline">Jasa Kirim</span>
+            <span className="sm:hidden">Jasa</span>
+          </TabsTrigger>
+          <TabsTrigger value="sap" className="data-[state=active]:bg-emerald-500/20">
+            <MapPin className="w-4 h-4 mr-2" />
+            <span className="hidden sm:inline">Alamat SAP</span>
+            <span className="sm:hidden">SAP</span>
+          </TabsTrigger>
+          <TabsTrigger value="jnt" className="data-[state=active]:bg-emerald-500/20">
+            <MapPin className="w-4 h-4 mr-2" />
+            <span className="hidden sm:inline">Alamat J&T</span>
+            <span className="sm:hidden">J&T</span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="product">
+          <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={() => setShowAddProduct(v => !v)}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white"
+            >
+              {showAddProduct ? <X className="w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+              {showAddProduct ? 'Tutup Form' : 'Tambah Produk Manual'}
+            </Button>
+            <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadTemplate('Product')}
+              className="border-border text-blue-400 hover:bg-blue-500/10"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Template
+            </Button>
+            {products.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const rows = [
+                    ['SKU', 'Nama Produk', 'Harga', 'Brand'],
+                    ...products.map(p => [p.sku || '', p.nama_produk || '', p.harga || 0, p.brand || ''])
+                  ];
+                  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+                  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `produk_${Date.now()}.csv`;
+                  a.click();
+                }}
+                className="border-border text-emerald-400 hover:bg-emerald-500/10"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download CSV ({products.length} produk)
+              </Button>
+            )}
+            </div>
+          </div>
+
+          {showAddProduct && (
+            <Card className="bg-muted border-border p-4 mb-4 space-y-3">
+              <h4 className="text-foreground font-semibold">Tambah Produk Baru</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Nama Produk *</Label>
+                  <Input
+                    value={newProduct.nama_produk}
+                    onChange={e => setNewProduct(p => ({ ...p, nama_produk: e.target.value }))}
+                    placeholder="Nama produk"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">SKU</Label>
+                  <Input
+                    value={newProduct.sku}
+                    onChange={e => setNewProduct(p => ({ ...p, sku: e.target.value }))}
+                    placeholder="SKU produk"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Harga</Label>
+                  <Input
+                    type="number"
+                    value={newProduct.harga}
+                    onChange={e => setNewProduct(p => ({ ...p, harga: e.target.value }))}
+                    placeholder="0"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Brand</Label>
+                  <Input
+                    value={newProduct.brand}
+                    onChange={e => setNewProduct(p => ({ ...p, brand: e.target.value }))}
+                    placeholder="Brand/merek"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+              </div>
+              <Button
+                onClick={async () => {
+                  if (!newProduct.nama_produk.trim()) {
+                    alert('Nama produk wajib diisi');
+                    return;
+                  }
+                  setAddingProduct(true);
+                  await api.createProduct({
+                    ...newProduct,
+                    harga: parseFloat(newProduct.harga) || 0
+                  });
+                  queryClient.invalidateQueries(['products']);
+                  setNewProduct(EMPTY_PRODUCT);
+                  setShowAddProduct(false);
+                  setAddingProduct(false);
+                }}
+                disabled={addingProduct}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white"
+              >
+                {addingProduct ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                Simpan Produk
+              </Button>
+            </Card>
+          )}
+
+          {/* Modal Edit Produk */}
+          {editingProduct && (
+            <Card className="bg-muted border-emerald-500/40 p-4 mb-4 space-y-3">
+              <h4 className="text-foreground font-semibold">Edit Produk</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Nama Produk *</Label>
+                  <Input
+                    value={editingProduct.nama_produk}
+                    onChange={e => setEditingProduct(p => ({ ...p, nama_produk: e.target.value }))}
+                    placeholder="Nama produk"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">SKU</Label>
+                  <Input
+                    value={editingProduct.sku}
+                    onChange={e => setEditingProduct(p => ({ ...p, sku: e.target.value }))}
+                    placeholder="SKU produk"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Harga</Label>
+                  <Input
+                    type="number"
+                    value={editingProduct.harga}
+                    onChange={e => setEditingProduct(p => ({ ...p, harga: e.target.value }))}
+                    placeholder="0"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Brand</Label>
+                  <Input
+                    value={editingProduct.brand}
+                    onChange={e => setEditingProduct(p => ({ ...p, brand: e.target.value }))}
+                    placeholder="Brand/merek"
+                    className="mt-1 bg-card border-border text-foreground"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={async () => {
+                    if (!editingProduct.nama_produk.trim()) {
+                      alert('Nama produk wajib diisi');
+                      return;
+                    }
+                    setSavingEdit(true);
+                    await api.updateProduct(editingProduct.id, {
+                      sku: editingProduct.sku,
+                      nama_produk: editingProduct.nama_produk,
+                      harga: parseFloat(editingProduct.harga) || 0,
+                      brand: editingProduct.brand
+                    });
+                    queryClient.invalidateQueries(['products']);
+                    setEditingProduct(null);
+                    setSavingEdit(false);
+                  }}
+                  disabled={savingEdit}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                >
+                  {savingEdit ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Simpan Perubahan
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditingProduct(null)}
+                  className="border-border text-muted-foreground"
+                >
+                  Batal
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          <ProductUploadSection
+            data={products}
+            searchKey="product"
+            searchInputs={searchInputs}
+            searchTerms={searchTerms}
+            setSearchInputs={setSearchInputs}
+            uploading={uploading}
+            uploadProgress={uploadProgress}
+            deleting={deleting}
+            deleteProgress={deleteProgress}
+            onUpload={handleUpload}
+            onDeleteAll={handleDeleteAll}
+            onDeleteSingle={deleteSingleMutation.mutate}
+            downloadErrorLog={downloadErrorLog}
+            deleteSingleMutation={deleteSingleMutation}
+            onEdit={setEditingProduct}
+          />
+        </TabsContent>
+
+        <TabsContent value="shipping">
+          <ShippingServiceManagement />
+        </TabsContent>
+
+        <TabsContent value="sap">
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadTemplate('KecamatanSAP')}
+              className="border-border text-blue-400 hover:bg-blue-500/10"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Template SAP
+            </Button>
+          </div>
+          <UploadSection
+            title="Database Kecamatan SAP"
+            entityName="KecamatanSAP"
+            data={kecamatanSAP}
+            icon={MapPin}
+            columns={['Kode', 'Kecamatan', 'Kota_Kab', 'Provinsi', 'Status_Tercover']}
+            searchKey="sap"
+            searchInputs={searchInputs}
+            searchTerms={searchTerms}
+            setSearchInputs={setSearchInputs}
+            uploading={uploading}
+            uploadProgress={uploadProgress}
+            deleting={deleting}
+            deleteProgress={deleteProgress}
+            onUpload={handleUpload}
+            onDeleteAll={handleDeleteAll}
+            onDeleteSingle={deleteSingleMutation.mutate}
+            downloadErrorLog={downloadErrorLog}
+            deleteSingleMutation={deleteSingleMutation}
+          />
+        </TabsContent>
+
+        <TabsContent value="jnt">
+          <div className="flex justify-end mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadTemplate('KecamatanJNT')}
+              className="border-border text-blue-400 hover:bg-blue-500/10"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download Template J&T
+            </Button>
+          </div>
+          <UploadSection
+            title="Database Kecamatan J&T/Lainnya"
+            entityName="KecamatanJNT"
+            data={kecamatanJNT}
+            icon={MapPin}
+            columns={['Provinsi', 'Kota_Kab', 'Kecamatan']}
+            searchKey="jnt"
+            searchInputs={searchInputs}
+            searchTerms={searchTerms}
+            setSearchInputs={setSearchInputs}
+            uploading={uploading}
+            uploadProgress={uploadProgress}
+            deleting={deleting}
+            deleteProgress={deleteProgress}
+            onUpload={handleUpload}
+            onDeleteAll={handleDeleteAll}
+            onDeleteSingle={deleteSingleMutation.mutate}
+            downloadErrorLog={downloadErrorLog}
+            deleteSingleMutation={deleteSingleMutation}
+          />
+        </TabsContent>
+      </Tabs>
+
+      <Card className="bg-card border-border p-6">
+        <h3 className="font-semibold text-foreground mb-3">Format File Excel</h3>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p><strong className="text-emerald-400">Produk:</strong> SKU | Nama Produk | Harga | Brand</p>
+          <p><strong className="text-emerald-400">Kecamatan SAP:</strong> KODE KECAMATAN | KECAMATAN | KOTA/KAB | PROVINSI | Tercover / Tidak</p>
+          <p><strong className="text-emerald-400">Kecamatan J&T/Lainnya:</strong> Provinsi | Kota | Kecamatan</p>
+        </div>
+      </Card>
     </div>
   );
 }

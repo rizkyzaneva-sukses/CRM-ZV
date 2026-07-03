@@ -68,7 +68,11 @@ router.post('/reset-all-data', requireRole('OWNER'), async (req, res) => {
     await query('DELETE FROM resi_import_exceptions');
     await query('DELETE FROM orders');
     await query('DELETE FROM customers');
-    res.json({ success: true, message: 'All order and customer data deleted' });
+    await query('DELETE FROM products');
+    await query('DELETE FROM shipping_services');
+    await query('DELETE FROM kecamatan_sap');
+    await query('DELETE FROM kecamatan_jnt');
+    res.json({ success: true, message: 'All data deleted successfully (Factory Reset)' });
   } catch (err) {
     res.status(500).json({ error: 'Reset failed' });
   }

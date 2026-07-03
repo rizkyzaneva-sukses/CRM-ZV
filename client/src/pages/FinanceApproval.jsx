@@ -1,114 +1,235 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../lib/api';
-import { CheckCircle, XCircle, DollarSign } from 'lucide-react';
-import StatusBadge from '../components/ui/StatusBadge';
+import React, { useState } from 'react';
+import { api } from '@/lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import StatusBadge from "@/components/ui/StatusBadge";
+import { 
+  CheckCircle, 
+  XCircle, 
+  Eye,
+  Loader2,
+  AlertTriangle
+} from 'lucide-react';
+import { formatInJakarta } from '@/components/utils/dateUtils';
 
-function formatCurrency(n) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
-}
+export default function FinanceApproval({ user, customRole }) {
+  const queryClient = useQueryClient();
+  const [selectedOrders, setSelectedOrders] = useState([]);
 
-export default function FinanceApproval() {
-  const [orders, setOrders] = useState([]);
-  const [selected, setSelected] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const isFinance = customRole === 'FINANCE' || customRole === 'OWNER';
 
-  useEffect(() => { loadOrders(); }, []);
+  const { data: pendingOrders = [], isLoading } = useQuery({
+    queryKey: ['pendingOrders'],
+    queryFn: async () => {
+      const data = await api.getOrders({ status_pesanan: 'WAITING_FINANCE', limit: 1000 });
+      return data.orders || [];
+    },
+    enabled: isFinance,
+  });
 
-  async function loadOrders() {
-    setLoading(true);
-    try {
-      const data = await api.getOrders({ status: 'WAITING_FINANCE', limit: 100 });
-      setOrders(data.orders || []);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+  const bulkApproveMutation = useMutation({
+    mutationFn: async (status) => {
+      for (const orderId of selectedOrders) {
+        await api.updateOrder(orderId, {
+          finance_status: status,
+          status_pesanan: status === 'APPROVED' ? 'READY_TO_PROCESS' : 'REJECTED',
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pendingOrders']);
+      queryClient.invalidateQueries(['orders']);
+      setSelectedOrders([]);
+    },
+  });
+
+  const singleApproveMutation = useMutation({
+    mutationFn: async ({ orderId, status }) => {
+      await api.updateOrder(orderId, {
+        finance_status: status,
+        status_pesanan: status === 'APPROVED' ? 'READY_TO_PROCESS' : 'REJECTED',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pendingOrders']);
+      queryClient.invalidateQueries(['orders']);
+    },
+  });
+
+  if (!isFinance) {
+    return (
+      <div className="text-center py-12">
+        <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+        <p className="text-foreground text-lg">Halaman ini hanya untuk Finance</p>
+        <p className="text-muted-foreground mt-2">Anda tidak memiliki akses ke halaman ini</p>
+      </div>
+    );
   }
 
-  function toggleSelect(id) {
-    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }
+  const toggleSelectOrder = (orderId) => {
+    setSelectedOrders(prev => 
+      prev.includes(orderId) 
+        ? prev.filter(id => id !== orderId)
+        : [...prev, orderId]
+    );
+  };
 
-  async function handleBulkAction(action) {
-    if (selected.length === 0) return alert('Select orders first');
-    if (!confirm(`${action} ${selected.length} orders?`)) return;
-    try {
-      await api.bulkFinance(selected, action);
-      setSelected([]);
-      loadOrders();
-    } catch (err) { alert(err.message); }
-  }
-
-  async function handleSingleAction(id, action) {
-    try {
-      await api.financeAction(id, action);
-      loadOrders();
-    } catch (err) { alert(err.message); }
-  }
-
-  const totalPending = orders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+  const toggleSelectAll = () => {
+    if (selectedOrders.length === pendingOrders.length) {
+      setSelectedOrders([]);
+    } else {
+      setSelectedOrders(pendingOrders.map(o => o.id));
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Finance Approval</h2>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-gray-400">
-            <DollarSign size={16} className="text-yellow-400" />
-            <span>{orders.length} pending | {formatCurrency(totalPending)}</span>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Finance Approval</h1>
+        <p className="text-muted-foreground mt-1">
+          Approve atau reject order CASH yang pending
+        </p>
       </div>
 
-      {selected.length > 0 && (
-        <div className="flex gap-2">
-          <button onClick={() => handleBulkAction('approve')} className="btn-primary flex items-center gap-2">
-            <CheckCircle size={16} /> Approve Selected ({selected.length})
-          </button>
-          <button onClick={() => handleBulkAction('reject')} className="btn-danger flex items-center gap-2">
-            <XCircle size={16} /> Reject Selected ({selected.length})
-          </button>
-        </div>
+      {/* Bulk Actions */}
+      {selectedOrders.length > 0 && (
+        <Card className="bg-card border-border p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-foreground">
+              <span className="font-semibold">{selectedOrders.length}</span> order dipilih
+            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => bulkApproveMutation.mutate('APPROVED')}
+                disabled={bulkApproveMutation.isPending}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {bulkApproveMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                )}
+                Approve All
+              </Button>
+              <Button
+                onClick={() => bulkApproveMutation.mutate('REJECTED')}
+                disabled={bulkApproveMutation.isPending}
+                variant="destructive"
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Reject All
+              </Button>
+            </div>
+          </div>
+        </Card>
       )}
 
-      <div className="card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800">
-              <th className="py-3 px-2 w-8"><input type="checkbox" onChange={e => setSelected(e.target.checked ? orders.map(o => o.id) : [])} /></th>
-              <th className="text-left py-3 px-2 text-gray-400">Order #</th>
-              <th className="text-left py-3 px-2 text-gray-400">Customer</th>
-              <th className="text-left py-3 px-2 text-gray-400">Date</th>
-              <th className="text-right py-3 px-2 text-gray-400">Total</th>
-              <th className="text-left py-3 px-2 text-gray-400">Payment</th>
-              <th className="text-center py-3 px-2 text-gray-400">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map(o => (
-              <tr key={o.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                <td className="py-3 px-2"><input type="checkbox" checked={selected.includes(o.id)} onChange={() => toggleSelect(o.id)} /></td>
-                <td className="py-3 px-2 text-indigo-400">{o.order_number}</td>
-                <td className="py-3 px-2">{o.nama_pemesan}</td>
-                <td className="py-3 px-2 text-gray-400">{o.order_date?.slice(0, 10)}</td>
-                <td className="py-3 px-2 text-right">{formatCurrency(o.total)}</td>
-                <td className="py-3 px-2 text-gray-400">{o.metode_pembayaran || '-'}</td>
-                <td className="py-3 px-2 text-center">
-                  <div className="flex gap-1 justify-center">
-                    <button onClick={() => handleSingleAction(o.id, 'approve')} className="text-green-400 hover:text-green-300 p-1" title="Approve">
-                      <CheckCircle size={18} />
-                    </button>
-                    <button onClick={() => handleSingleAction(o.id, 'reject')} className="text-red-400 hover:text-red-300 p-1" title="Reject">
-                      <XCircle size={18} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {orders.length === 0 && (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-500">No pending orders</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Pending Orders Table */}
+      <Card className="bg-card border-border overflow-hidden">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+          </div>
+        ) : pendingOrders.length === 0 ? (
+          <div className="text-center py-12">
+            <CheckCircle className="w-12 h-12 text-emerald-500/30 mx-auto mb-4" />
+            <p className="text-foreground text-lg">Tidak ada order pending</p>
+            <p className="text-muted-foreground mt-2">Semua order CASH sudah diproses</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={selectedOrders.length === pendingOrders.length && pendingOrders.length > 0}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead className="text-foreground font-semibold">No Pesanan</TableHead>
+                  <TableHead className="text-foreground font-semibold">Tanggal</TableHead>
+                  <TableHead className="text-foreground font-semibold">Nama</TableHead>
+                  <TableHead className="text-foreground font-semibold">Penginput</TableHead>
+                  <TableHead className="text-foreground font-semibold text-right">Total</TableHead>
+                  <TableHead className="text-foreground font-semibold">Transfer Atas Nama</TableHead>
+                  <TableHead className="text-foreground font-semibold">Metode Pembayaran</TableHead>
+                  <TableHead className="text-foreground font-semibold text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingOrders.map((order) => (
+                  <TableRow 
+                    key={order.id}
+                    className="border-border hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedOrders.includes(order.id)}
+                        onCheckedChange={() => toggleSelectOrder(order.id)}
+                      />
+                    </TableCell>
+                    <TableCell className="text-foreground font-medium">
+                      {order.order_number}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {order.order_date ? formatInJakarta(order.order_date, 'dd/MM/yyyy') : '—'}
+                    </TableCell>
+                    <TableCell className="text-foreground">{order.nama_pemesan}</TableCell>
+                    <TableCell className="text-muted-foreground">{order.created_by}</TableCell>
+                    <TableCell className="text-foreground text-right font-medium">
+                      Rp {(order.total || 0).toLocaleString('id-ID')}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{order.transfer_atas_nama || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{order.metode_pembayaran || '—'}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link to={createPageUrl(`OrderDetail?id=${order.id}`)}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="text-muted-foreground hover:text-foreground hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </Link>
+                        <Button
+                          size="sm"
+                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, status: 'APPROVED' })}
+                          disabled={singleApproveMutation.isPending}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, status: 'REJECTED' })}
+                          disabled={singleApproveMutation.isPending}
+                          variant="destructive"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

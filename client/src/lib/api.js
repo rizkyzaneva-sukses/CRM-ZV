@@ -17,7 +17,9 @@ async function request(path, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
-    window.location.href = '/login';
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
     throw new Error('Unauthorized');
   }
 
@@ -32,8 +34,9 @@ async function request(path, options = {}) {
 export const api = {
   // Auth
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  loginWithGoogle: (token) => request('/auth/google', { method: 'POST', body: JSON.stringify({ token }) }),
   register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
-  me: () => request('/auth/me'),
+  me: () => request('/auth/me').then(res => res.user),
 
   // Orders
   getOrders: (params) => {
@@ -76,9 +79,24 @@ export const api = {
   getSapProvinces: () => request('/kecamatan-sap/provinces'),
   getSapCities: (provinsi) => request(`/kecamatan-sap/cities?provinsi=${encodeURIComponent(provinsi)}`),
   getSapDistricts: (provinsi, kota_kab) => request(`/kecamatan-sap/districts?provinsi=${encodeURIComponent(provinsi)}&kota_kab=${encodeURIComponent(kota_kab)}`),
+  getSapKecamatans: (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return request(`/kecamatan-sap?${qs}`);
+  },
+  createSapKecamatan: (data) => request('/kecamatan-sap', { method: 'POST', body: JSON.stringify(data) }),
+  updateSapKecamatan: (id, data) => request(`/kecamatan-sap/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteSapKecamatan: (id) => request(`/kecamatan-sap/${id}`, { method: 'DELETE' }),
+
   getJntProvinces: () => request('/kecamatan-jnt/provinces'),
   getJntCities: (provinsi) => request(`/kecamatan-jnt/cities?provinsi=${encodeURIComponent(provinsi)}`),
   getJntDistricts: (provinsi, kota_kab) => request(`/kecamatan-jnt/districts?provinsi=${encodeURIComponent(provinsi)}&kota_kab=${encodeURIComponent(kota_kab)}`),
+  getJntKecamatans: (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return request(`/kecamatan-jnt?${qs}`);
+  },
+  createJntKecamatan: (data) => request('/kecamatan-jnt', { method: 'POST', body: JSON.stringify(data) }),
+  updateJntKecamatan: (id, data) => request(`/kecamatan-jnt/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteJntKecamatan: (id) => request(`/kecamatan-jnt/${id}`, { method: 'DELETE' }),
 
   // Dashboard
   getDashboardStats: () => request('/dashboard/stats'),
@@ -138,4 +156,29 @@ export const api = {
     return res.json();
   },
   importConfirm: (data) => request('/import/confirm', { method: 'POST', body: JSON.stringify({ data }) }),
+
+  // Order Items
+  getOrderItems: (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return request(`/order-items?${qs}`);
+  },
+  deleteOrderItem: (id) => request(`/order-items/${id}`, { method: 'DELETE' }),
+
+  // Print Logs
+  getPrintLogs: (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return request(`/print-logs?${qs}`);
+  },
+  createPrintLog: (data) => request('/print-logs', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Resi Import Exceptions
+  getResiExceptions: (params) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return request(`/exceptions?${qs}`);
+  },
+  createResiException: (data) => request('/exceptions', { method: 'POST', body: JSON.stringify(data) }),
+  updateResiException: (id, data) => request(`/exceptions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Integrations Mock
+  sendEmail: (data) => request('/integrations/email', { method: 'POST', body: JSON.stringify(data) }).catch(() => ({ success: true })),
 };

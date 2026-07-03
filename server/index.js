@@ -16,7 +16,8 @@ async function autoSeed() {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       email VARCHAR(255) UNIQUE NOT NULL,
       full_name VARCHAR(255),
-      password_hash VARCHAR(255) NOT NULL,
+      password_hash VARCHAR(255),
+      google_id VARCHAR(255) UNIQUE,
       role VARCHAR(50) DEFAULT 'user',
       custom_role VARCHAR(50) DEFAULT 'STAFF',
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -252,6 +253,8 @@ app.use('/api/audit-logs', require('./routes/auditLogs'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/print-logs', require('./routes/printLogs'));
+app.use('/api/exceptions', require('./routes/exceptions'));
 
 // SPA fallback
 app.get('*', (req, res) => {

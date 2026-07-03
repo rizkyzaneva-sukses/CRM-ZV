@@ -9,7 +9,8 @@
     "build": "cd client && npx vite build",
     "start": "cd server && node index.js",
     "db:migrate": "cd server && node utils/migrate.js",
-    "db:seed": "cd server && node utils/seed.js"
+    "db:seed": "cd server && node utils/seed.js",
+    "test": "npm run test --prefix server && npm run test --prefix client"
   },
   "dependencies": {
     "concurrently": "^8.2.2"

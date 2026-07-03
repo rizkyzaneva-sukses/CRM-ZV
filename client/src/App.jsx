@@ -1,87 +1,86 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { api } from './lib/api';
+import { Toaster } from "@/components/ui/toaster"
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClientInstance } from '@/lib/query-client'
+import NavigationTracker from '@/lib/NavigationTracker'
+import { pagesConfig } from './pages.config'
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import PageNotFound from './lib/PageNotFound';
+import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import Login from '@/pages/Login';
 
-// Pages
-import Dashboard from './pages/Dashboard';
-import InputOrder from './pages/InputOrder';
-import OrderDetail from './pages/OrderDetail';
-import CustomerManagement from './pages/CustomerManagement';
-import UploadResi from './pages/UploadResi';
-import PrintResi from './pages/PrintResi';
-import ExportCenter from './pages/ExportCenter';
-import MasterData from './pages/MasterData';
-import FinanceApproval from './pages/FinanceApproval';
-import AuditLog from './pages/AuditLog';
-import UserManagement from './pages/UserManagement';
-import ImportData from './pages/ImportData';
-import Login from './pages/Login';
+const { Pages, Layout, mainPage } = pagesConfig;
+const mainPageKey = mainPage ?? Object.keys(Pages)[0];
+const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
 
-// Components
-import Layout from './components/layout/Layout';
+const LayoutWrapper = ({ children, currentPageName }) => Layout ?
+  <Layout currentPageName={currentPageName}>{children}</Layout>
+  : <>{children}</>;
 
-const AuthContext = createContext(null);
+const AuthenticatedApp = () => {
+  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
-export function useAuth() {
-  return useContext(AuthContext);
-}
+  // Show loading spinner while checking app public settings or auth
+  if (isLoadingPublicSettings || isLoadingAuth) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 border-border border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
-function ProtectedRoute({ children, roles }) {
-  const { user, customRole } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(customRole)) return <Navigate to="/" replace />;
-  return children;
-}
+  // Handle authentication errors
+  if (authError) {
+    if (authError.type === 'user_not_registered') {
+      return <UserNotRegisteredError />;
+    } else if (authError.type === 'auth_required') {
+      // Redirect to login automatically
+      navigateToLogin();
+      return null;
+    }
+  }
 
-function AppRoutes() {
-  const { user } = useAuth();
+  // Render the main app
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
-      <Route path="/InputOrder" element={<ProtectedRoute><Layout><InputOrder /></Layout></ProtectedRoute>} />
-      <Route path="/OrderDetail" element={<ProtectedRoute><Layout><OrderDetail /></Layout></ProtectedRoute>} />
-      <Route path="/CustomerManagement" element={<ProtectedRoute><Layout><CustomerManagement /></Layout></ProtectedRoute>} />
-      <Route path="/UploadResi" element={<ProtectedRoute><Layout><UploadResi /></Layout></ProtectedRoute>} />
-      <Route path="/PrintResi" element={<ProtectedRoute><Layout><PrintResi /></Layout></ProtectedRoute>} />
-      <Route path="/ExportCenter" element={<ProtectedRoute roles={['OWNER','FINANCE','INVENTORI']}><Layout><ExportCenter /></Layout></ProtectedRoute>} />
-      <Route path="/MasterData" element={<ProtectedRoute><Layout><MasterData /></Layout></ProtectedRoute>} />
-      <Route path="/FinanceApproval" element={<ProtectedRoute roles={['OWNER','FINANCE']}><Layout><FinanceApproval /></Layout></ProtectedRoute>} />
-      <Route path="/AuditLog" element={<ProtectedRoute><Layout><AuditLog /></Layout></ProtectedRoute>} />
-      <Route path="/UserManagement" element={<ProtectedRoute roles={['OWNER']}><Layout><UserManagement /></Layout></ProtectedRoute>} />
-      <Route path="/ImportData" element={<ProtectedRoute roles={['OWNER']}><Layout><ImportData /></Layout></ProtectedRoute>} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/" element={
+        <LayoutWrapper currentPageName={mainPageKey}>
+          <MainPage />
+        </LayoutWrapper>
+      } />
+      {Object.entries(Pages).map(([path, Page]) => (
+        <Route
+          key={path}
+          path={`/${path}`}
+          element={
+            <LayoutWrapper currentPageName={path}>
+              <Page />
+            </LayoutWrapper>
+          }
+        />
+      ))}
+      <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
-}
+};
 
-export default function App() {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('crm_user')); } catch { return null; }
-  });
-  const [customRole, setCustomRole] = useState(user?.custom_role || 'STAFF');
 
-  const login = async (email, password) => {
-    const res = await api.login(email, password);
-    localStorage.setItem('crm_token', res.token);
-    localStorage.setItem('crm_user', JSON.stringify(res.user));
-    setUser(res.user);
-    setCustomRole(res.user.custom_role || 'STAFF');
-    return res;
-  };
-
-  const logout = () => {
-    localStorage.removeItem('crm_token');
-    localStorage.removeItem('crm_user');
-    setUser(null);
-    setCustomRole('STAFF');
-  };
+function App() {
 
   return (
-    <AuthContext.Provider value={{ user, customRole, login, logout }}>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </AuthContext.Provider>
-  );
+    <AuthProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <NavigationTracker />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/*" element={<AuthenticatedApp />} />
+          </Routes>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </AuthProvider>
+  )
 }
+
+export default App

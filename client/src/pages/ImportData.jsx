@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import {
   Upload, CheckCircle, AlertTriangle, Database, FileUp,
   X, ChevronDown, ChevronRight, Package, Users, ShoppingCart,
-  Loader2, RotateCcw, Eye, EyeOff, Info
+  Loader2, RotateCcw, Eye, EyeOff, Info, Download
 } from 'lucide-react';
 
 const TAB_ICONS = {
@@ -162,6 +162,32 @@ export default function ImportData() {
     }
   };
 
+  const downloadFailedItems = (type, items) => {
+    if (!items || items.length === 0) return;
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `failed_import_${type}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadSkippedItems = (type, items) => {
+    if (!items || items.length === 0) return;
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `skipped_import_${type}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Reset everything
   const reset = () => {
     setFile(null);
@@ -264,6 +290,24 @@ export default function ImportData() {
                       <p className="text-xs text-red-400 mt-2 truncate" title={counts.errors.join('\n')}>
                         {counts.errors.length} error(s)
                       </p>
+                    )}
+                    {counts.failedItems && counts.failedItems.length > 0 && (
+                      <button
+                        onClick={() => downloadFailedItems(type, counts.failedItems)}
+                        className="mt-2 w-full flex items-center justify-center gap-1 bg-red-900/40 hover:bg-red-900/60 text-red-300 text-xs py-1.5 rounded transition-colors"
+                      >
+                        <Download size={12} />
+                        Download Failed Data
+                      </button>
+                    )}
+                    {counts.skippedItems && counts.skippedItems.length > 0 && (
+                      <button
+                        onClick={() => downloadSkippedItems(type, counts.skippedItems)}
+                        className="mt-2 w-full flex items-center justify-center gap-1 bg-yellow-900/40 hover:bg-yellow-900/60 text-yellow-300 text-xs py-1.5 rounded transition-colors"
+                      >
+                        <Download size={12} />
+                        Download Skipped Data
+                      </button>
                     )}
                   </div>
                 );
