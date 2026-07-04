@@ -38,13 +38,18 @@ export default function ShippingServiceManagement() {
     is_active: true
   });
 
-  const { data: services = [], isLoading } = useQuery({
+  const { data: rawServices = [], isLoading } = useQuery({
     queryKey: ['shippingServices'],
     queryFn: async () => {
       const data = await api.getShippingServices();
-      return data.shipping_services || data;
+      if (data && Array.isArray(data.shipping_services)) return data.shipping_services;
+      if (data && Array.isArray(data.services)) return data.services;
+      if (Array.isArray(data)) return data;
+      return [];
     },
   });
+
+  const services = Array.isArray(rawServices) ? rawServices : [];
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -156,7 +161,7 @@ export default function ShippingServiceManagement() {
       if (rawData.length === 0) { alert('File kosong atau format tidak sesuai'); return; }
       // Ambil data existing untuk cek duplikat
       const res = await api.getShippingServices();
-      const existing = res.shipping_services || res;
+      const existing = (res && Array.isArray(res.shipping_services)) ? res.shipping_services : ((res && Array.isArray(res.services)) ? res.services : (Array.isArray(res) ? res : []));
       let inserted = 0;
       let updated = 0;
       for (const row of rawData) {

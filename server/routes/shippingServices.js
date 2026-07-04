@@ -8,7 +8,7 @@ router.use(authMiddleware);
 router.get('/', async (req, res) => {
   try {
     const result = await query('SELECT * FROM shipping_services ORDER BY name');
-    res.json({ services: result.rows });
+    res.json({ shipping_services: result.rows, services: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch services' });
   }
