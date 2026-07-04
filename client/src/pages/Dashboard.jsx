@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
 import StatsCard from '@/components/dashboard/StatsCard';
@@ -7,6 +7,7 @@ import OrderFilters from '@/components/forms/OrderFilters';
 import SalesChart from '@/components/dashboard/SalesChart';
 import StatusPieChart from '@/components/dashboard/StatusPieChart';
 import ShippingPerformance from '@/components/dashboard/ShippingPerformance';
+import Pagination from '@/components/ui/Pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { 
@@ -21,6 +22,9 @@ import { getTodayJakarta, formatInJakarta } from '@/components/utils/dateUtils';
 
 export default function Dashboard({ user, customRole }) {
   const isInventori = customRole === 'INVENTORI';
+  const isStaff = customRole === 'STAFF';
+  const today = getTodayJakarta();
+  const PAGE_SIZE = 50;
 
   const [filters, setFilters] = useState({
     search: '',
@@ -29,28 +33,49 @@ export default function Dashboard({ user, customRole }) {
     status: 'all',
     jasa: 'all',
   });
+  const [tablePage, setTablePage] = useState(1);
 
-  const isStaff = customRole === 'STAFF';
-  const today = getTodayJakarta();
-
-  const { data: orders = [], isLoading } = useQuery({
-    queryKey: ['orders', user?.email, customRole],
+  // --- Query 1: Data untuk Stats & Charts (limit wajar, tidak dipaginasi) ---
+  const { data: statsOrders = [] } = useQuery({
+    queryKey: ['ordersStats', user?.email, customRole],
     queryFn: async () => {
       if (isStaff) {
         const data = await api.getOrders({ created_by: user?.email, limit: 500 });
         return data.orders || [];
       } else {
-        const data = await api.getOrders({ limit: 1000 });
+        const data = await api.getOrders({ limit: 500 });
         return data.orders || [];
       }
     },
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: allOrderItems = [] } = useQuery({
-    queryKey: ['allOrderItems'],
-    queryFn: () => api.getOrderItems({ limit: 5000 }).then(res => res.order_items || []),
+  // --- Query 2: Data untuk Tabel (server-side paginated + filter) ---
+  const tableParams = useMemo(() => {
+    const params = { page: tablePage, limit: PAGE_SIZE };
+    if (isStaff) params.created_by = user?.email;
+    if (filters.search) params.search = filters.search;
+    if (filters.dateFrom) params.date_from = filters.dateFrom;
+    if (filters.dateTo) params.date_to = filters.dateTo;
+    if (filters.status !== 'all') params.status = filters.status;
+    if (filters.jasa !== 'all') params.shipping = filters.jasa;
+    return params;
+  }, [filters, tablePage, isStaff, user?.email]);
+
+  const { data: tableResult = {}, isLoading } = useQuery({
+    queryKey: ['ordersTable', tableParams],
+    queryFn: () => api.getOrders(tableParams).then(res => ({
+      orders: res.orders || [],
+      total: res.total || 0,
+    })),
+    enabled: !!user,
+    keepPreviousData: true,
   });
+
+  const orders = tableResult.orders || [];
+  const tableTotal = tableResult.total || 0;
+  const totalPages = Math.ceil(tableTotal / PAGE_SIZE);
 
   const { data: shippingServices = [] } = useQuery({
     queryKey: ['shippingServices'],
@@ -58,10 +83,10 @@ export default function Dashboard({ user, customRole }) {
   });
 
   const stats = useMemo(() => {
-    const todayOrders = orders.filter(o => o.order_date === today);
-    const waitingFinance = orders.filter(o => o.status_pesanan === 'WAITING_FINANCE');
-    const readyToProcess = orders.filter(o => o.status_pesanan === 'READY_TO_PROCESS');
-    const resiUpdated = orders.filter(o => o.status_pesanan === 'RESI_UPDATED');
+    const todayOrders = statsOrders.filter(o => o.order_date === today);
+    const waitingFinance = statsOrders.filter(o => o.status_pesanan === 'WAITING_FINANCE');
+    const readyToProcess = statsOrders.filter(o => o.status_pesanan === 'READY_TO_PROCESS');
+    const resiUpdated = statsOrders.filter(o => o.status_pesanan === 'RESI_UPDATED');
 
     return {
       today: todayOrders.length,
@@ -69,14 +94,14 @@ export default function Dashboard({ user, customRole }) {
       readyToProcess: readyToProcess.length,
       resiUpdated: resiUpdated.length,
     };
-  }, [orders, today]);
+  }, [statsOrders, today]);
 
   // Daily sales data (last 7 days)
   const dailySalesData = useMemo(() => {
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const dayOrders = orders.filter(o => o.order_date === date);
+      const dayOrders = statsOrders.filter(o => o.order_date === date);
       const total = dayOrders.reduce((sum, o) => sum + (o.total || 0), 0);
       last7Days.push({
         name: format(subDays(new Date(), i), 'dd MMM'),
@@ -85,7 +110,7 @@ export default function Dashboard({ user, customRole }) {
       });
     }
     return last7Days;
-  }, [orders]);
+  }, [statsOrders]);
 
   // Weekly sales data (last 4 weeks)
   const weeklySalesData = useMemo(() => {
@@ -93,7 +118,7 @@ export default function Dashboard({ user, customRole }) {
     for (let i = 3; i >= 0; i--) {
       const weekStart = startOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
       const weekEnd = endOfWeek(subDays(new Date(), i * 7), { weekStartsOn: 1 });
-      const weekOrders = orders.filter(o => {
+      const weekOrders = statsOrders.filter(o => {
         if (!o.order_date) return false;
         const orderDate = parseISO(o.order_date);
         return orderDate >= weekStart && orderDate <= weekEnd;
@@ -106,7 +131,7 @@ export default function Dashboard({ user, customRole }) {
       });
     }
     return weeks.reverse();
-  }, [orders]);
+  }, [statsOrders]);
 
   // Monthly sales data (last 6 months)
   const monthlySalesData = useMemo(() => {
@@ -114,7 +139,7 @@ export default function Dashboard({ user, customRole }) {
     for (let i = 5; i >= 0; i--) {
       const monthStart = startOfMonth(subDays(new Date(), i * 30));
       const monthEnd = endOfMonth(subDays(new Date(), i * 30));
-      const monthOrders = orders.filter(o => {
+      const monthOrders = statsOrders.filter(o => {
         if (!o.order_date) return false;
         const orderDate = parseISO(o.order_date);
         return orderDate >= monthStart && orderDate <= monthEnd;
@@ -127,22 +152,22 @@ export default function Dashboard({ user, customRole }) {
       });
     }
     return months;
-  }, [orders]);
+  }, [statsOrders]);
 
   // Status distribution
   const statusData = useMemo(() => {
     const statusCount = {};
-    orders.forEach(o => {
+    statsOrders.forEach(o => {
       const status = o.status_pesanan || 'DRAFT';
       statusCount[status] = (statusCount[status] || 0) + 1;
     });
     return Object.entries(statusCount).map(([name, value]) => ({ name, value }));
-  }, [orders]);
+  }, [statsOrders]);
 
   // Shipping service performance
   const shippingData = useMemo(() => {
     const shippingCount = {};
-    orders.forEach(o => {
+    statsOrders.forEach(o => {
       const jasa = o.jasa_pengiriman || 'unknown';
       shippingCount[jasa] = (shippingCount[jasa] || 0) + 1;
     });
@@ -153,40 +178,14 @@ export default function Dashboard({ user, customRole }) {
         value 
       }))
       .sort((a, b) => b.value - a.value);
-  }, [orders]);
+  }, [statsOrders]);
 
-  const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
-      if (filters.search) {
-        const search = filters.search.toLowerCase();
-        const matchSearch = 
-          (order.nama_pemesan || '').toLowerCase().includes(search) ||
-          (order.no_telepon || '').toLowerCase().includes(search) ||
-          (order.order_number || '').toLowerCase().includes(search);
-        if (!matchSearch) return false;
-      }
-
-      if (filters.dateFrom && order.order_date < filters.dateFrom) {
-        return false;
-      }
-      if (filters.dateTo && order.order_date > filters.dateTo) {
-        return false;
-      }
-
-      if (filters.status !== 'all' && order.status_pesanan !== filters.status) {
-        return false;
-      }
-
-      if (filters.jasa !== 'all' && order.jasa_pengiriman !== filters.jasa) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [orders, filters]);
+  // filteredOrders tidak lagi diperlukan — filtering sekarang dilakukan di server
+  // orders di sini sudah merupakan halaman yang sudah difilter
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+    setTablePage(1); // reset ke halaman 1 saat filter berubah
   };
 
   const handleClearFilters = () => {
@@ -197,83 +196,74 @@ export default function Dashboard({ user, customRole }) {
       status: 'all',
       jasa: 'all',
     });
+    setTablePage(1);
   };
 
-  const handleDownloadOrders = () => {
-    if (filteredOrders.length === 0) {
-      alert('Tidak ada data untuk didownload');
-      return;
-    }
+  const handleDownloadOrders = async () => {
+    // Fetch semua data yang cocok filter untuk di-download (on-demand)
+    try {
+      const params = { limit: 5000 };
+      if (isStaff) params.created_by = user?.email;
+      if (filters.search) params.search = filters.search;
+      if (filters.dateFrom) params.date_from = filters.dateFrom;
+      if (filters.dateTo) params.date_to = filters.dateTo;
+      if (filters.status !== 'all') params.status = filters.status;
+      if (filters.jasa !== 'all') params.shipping = filters.jasa;
 
-    const csvHeaders = [
-      'No Pesanan',
-      'Nomor Referensi SKU',
-      'Jumlah',
-      'Waktu Pesanan Dibuat',
-      'Status Pesanan',
-      'No. Resi',
-      'Metode Pembayaran',
-      'Harga Setelah Diskon',
-      'ONGKIR',
-      'HARGA AKHIR',
-      'Kota/Kabupaten',
-      'Provinsi',
-      'Platform',
-      'Username (Pembeli)',
-      'Nama Penerima',
-      'No. Telepon',
-      'Alamat Pengiriman',
-      'PLN/INPUT',
-      'Tgl Kirim'
-    ].join(',');
+      const [ordersRes, itemsRes] = await Promise.all([
+        api.getOrders(params),
+        api.getOrderItems({ limit: 5000 }),
+      ]);
+      const downloadOrders = ordersRes.orders || [];
+      const downloadItems = itemsRes.order_items || [];
 
-    const csvRows = [];
-    filteredOrders.forEach(order => {
-      const items = allOrderItems.filter(item => item.order_id === order.id);
-      const shippingService = shippingServices.find(s => s.code === order.jasa_pengiriman);
-      const platformName = shippingService ? shippingService.name : (order.jasa_pengiriman || '');
-      
-      if (items.length === 0) {
-        csvRows.push([
-          order.order_number || '',
-          '',
-          '',
-          order.created_date ? formatInJakarta(order.created_date, 'dd/MM/yyyy HH:mm') : '',
-          order.status_pesanan || '',
-          order.no_resi || '',
-          order.metode_pembayaran || '',
-          '',
-          order.ongkir || 0,
-          order.total || 0,
-          order.kota_kab || '',
-          order.provinsi || '',
-          platformName,
-          order.nama_pemesan || '',
-          order.nama_pemesan || '',
-          order.no_telepon || '',
-          `"${(order.alamat || '').replace(/"/g, '""')}"`,
-          order.created_by || '',
-          order.order_date || ''
-        ].join(','));
-      } else {
-        items.forEach(item => {
-          const itemJasa = item.jasa_pengiriman || order.jasa_pengiriman || '';
-          const itemShippingService = shippingServices.find(s => s.code === itemJasa);
-          const itemPlatformName = itemShippingService ? itemShippingService.name : itemJasa;
+      if (downloadOrders.length === 0) {
+        alert('Tidak ada data untuk didownload');
+        return;
+      }
+      const csvHeaders = [
+        'No Pesanan',
+        'Nomor Referensi SKU',
+        'Jumlah',
+        'Waktu Pesanan Dibuat',
+        'Status Pesanan',
+        'No. Resi',
+        'Metode Pembayaran',
+        'Harga Setelah Diskon',
+        'ONGKIR',
+        'HARGA AKHIR',
+        'Kota/Kabupaten',
+        'Provinsi',
+        'Platform',
+        'Username (Pembeli)',
+        'Nama Penerima',
+        'No. Telepon',
+        'Alamat Pengiriman',
+        'PLN/INPUT',
+        'Tgl Kirim'
+      ].join(',');
+
+      const csvRows = [];
+      downloadOrders.forEach(order => {
+        const items = downloadItems.filter(item => item.order_id === order.id);
+        const shippingService = shippingServices.find(s => s.code === order.jasa_pengiriman);
+        const platformName = shippingService ? shippingService.name : (order.jasa_pengiriman || '');
+        
+        if (items.length === 0) {
           csvRows.push([
             order.order_number || '',
-            item.sku || '',
-            item.qty || 0,
+            '',
+            '',
             order.created_date ? formatInJakarta(order.created_date, 'dd/MM/yyyy HH:mm') : '',
             order.status_pesanan || '',
             order.no_resi || '',
             order.metode_pembayaran || '',
-            item.harga_setelah_diskon || 0,
+            '',
             order.ongkir || 0,
             order.total || 0,
             order.kota_kab || '',
             order.provinsi || '',
-            itemPlatformName,
+            platformName,
             order.nama_pemesan || '',
             order.nama_pemesan || '',
             order.no_telepon || '',
@@ -281,19 +271,48 @@ export default function Dashboard({ user, customRole }) {
             order.created_by || '',
             order.order_date || ''
           ].join(','));
-        });
-      }
-    });
+        } else {
+          items.forEach(item => {
+            const itemJasa = item.jasa_pengiriman || order.jasa_pengiriman || '';
+            const itemShippingService = shippingServices.find(s => s.code === itemJasa);
+            const itemPlatformName = itemShippingService ? itemShippingService.name : itemJasa;
+            csvRows.push([
+              order.order_number || '',
+              item.sku || '',
+              item.qty || 0,
+              order.created_date ? formatInJakarta(order.created_date, 'dd/MM/yyyy HH:mm') : '',
+              order.status_pesanan || '',
+              order.no_resi || '',
+              order.metode_pembayaran || '',
+              item.harga_setelah_diskon || 0,
+              order.ongkir || 0,
+              order.total || 0,
+              order.kota_kab || '',
+              order.provinsi || '',
+              itemPlatformName,
+              order.nama_pemesan || '',
+              order.nama_pemesan || '',
+              order.no_telepon || '',
+              `"${(order.alamat || '').replace(/"/g, '""')}"`,
+              order.created_by || '',
+              order.order_date || ''
+            ].join(','));
+          });
+        }
+      });
 
-    const csv = [csvHeaders, ...csvRows].join('\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const dateLabel = filters.dateFrom ? `_${filters.dateFrom}${filters.dateTo ? '_sd_' + filters.dateTo : ''}` : '';
-    a.download = `orders${dateLabel}_${formatInJakarta(new Date(), 'yyyyMMdd')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const csv = [csvHeaders, ...csvRows].join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateLabel = filters.dateFrom ? `_${filters.dateFrom}${filters.dateTo ? '_sd_' + filters.dateTo : ''}` : '';
+      a.download = `orders${dateLabel}_${formatInJakarta(new Date(), 'yyyyMMdd')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Gagal mengunduh data: ' + err.message);
+    }
   };
 
   // Tampilan khusus untuk role INVENTORI
@@ -314,15 +333,21 @@ export default function Dashboard({ user, customRole }) {
             />
             <Button
               onClick={handleDownloadOrders}
-              disabled={filteredOrders.length === 0}
               className="bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap"
             >
               <Download className="w-4 h-4 mr-2" />
-              Download ({filteredOrders.length})
+              Download {tableTotal > 0 ? `(${tableTotal.toLocaleString('id-ID')})` : ''}
             </Button>
           </div>
 
-          <OrdersTable orders={filteredOrders} loading={isLoading} customRole={customRole} />
+          <OrdersTable orders={orders} loading={isLoading} customRole={customRole} />
+          <Pagination
+            page={tablePage}
+            totalPages={totalPages}
+            onPageChange={setTablePage}
+            total={tableTotal}
+            pageSize={PAGE_SIZE}
+          />
         </div>
       </div>
     );
@@ -430,15 +455,21 @@ export default function Dashboard({ user, customRole }) {
           />
           <Button
             onClick={handleDownloadOrders}
-            disabled={filteredOrders.length === 0}
             className="bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap"
           >
             <Download className="w-4 h-4 mr-2" />
-            Download ({filteredOrders.length})
+            Download {tableTotal > 0 ? `(${tableTotal.toLocaleString('id-ID')})` : ''}
           </Button>
         </div>
 
-        <OrdersTable orders={filteredOrders} loading={isLoading} customRole={customRole} />
+        <OrdersTable orders={orders} loading={isLoading} customRole={customRole} />
+        <Pagination
+          page={tablePage}
+          totalPages={totalPages}
+          onPageChange={setTablePage}
+          total={tableTotal}
+          pageSize={PAGE_SIZE}
+        />
       </div>
     </div>
   );

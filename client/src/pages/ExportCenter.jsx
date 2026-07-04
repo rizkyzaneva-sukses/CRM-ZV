@@ -36,35 +36,20 @@ export default function ExportCenter({ user, customRole }) {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Get orders by date range
-  const { data: orders = [] } = useQuery({
+  // Get orders by date range — filter dikirim ke server, bukan client-side
+  const { data: orders = [], isLoading: ordersLoading } = useQuery({
     queryKey: ['ordersExport', user?.email, isFinance, startDate, endDate],
     queryFn: async () => {
-      if (isFinance) {
-        const data = await api.getOrders({ limit: 2000 });
-        const allOrders = data.orders || [];
-        return allOrders.filter(order => {
-          const orderDate = order.created_date?.split('T')[0];
-          return orderDate >= startDate && orderDate <= endDate;
-        });
-      } else {
-        const data = await api.getOrders({ created_by: user?.email, limit: 1000 });
-        const userOrders = data.orders || [];
-        const today = new Date().toISOString().split('T')[0];
-        return userOrders.filter(order => {
-          const orderDate = order.created_date?.split('T')[0];
-          return orderDate === today;
-        });
-      }
+      const params = { limit: 2000, date_from: startDate, date_to: endDate };
+      if (!isFinance) params.created_by = user?.email;
+      const data = await api.getOrders(params);
+      return data.orders || [];
     },
     enabled: !!user,
   });
 
-  // Get order items
-  const { data: allItems = [] } = useQuery({
-    queryKey: ['allOrderItems'],
-    queryFn: () => api.getOrderItems({ limit: 5000 }).then(res => res.order_items || []),
-  });
+  // allOrderItems TIDAK di-load saat halaman buka — di-fetch on-demand saat export diklik
+  // Lihat fungsi fetchItemsForOrders di masing-masing export handler
 
   // Filter orders for each export type
   const sapOrders = orders.filter(o => 
@@ -89,17 +74,23 @@ export default function ExportCenter({ user, customRole }) {
 
   const resiOrders = orders.filter(o => o.no_resi);
 
-  const getItemsForOrder = (orderId) => {
-    return allItems.filter(item => item.order_id === orderId);
+  // Fetch items untuk sekumpulan order IDs secara batch
+  const fetchItemsForOrders = async (orderIds) => {
+    const results = await Promise.all(
+      orderIds.map(id => api.getOrderItems({ order_id: id, limit: 50 }).then(r => r.order_items || []))
+    );
+    const map = {};
+    orderIds.forEach((id, i) => { map[id] = results[i]; });
+    return map;
   };
 
-  const getItemDescription = (orderId) => {
-    const items = getItemsForOrder(orderId);
+  const getItemDescriptionFromMap = (orderId, itemsMap) => {
+    const items = itemsMap[orderId] || [];
     return items.map(item => `${item.nama_produk} (${item.qty})`).join(', ') || '-';
   };
 
-  const getTotalQty = (orderId) => {
-    const items = getItemsForOrder(orderId);
+  const getTotalQtyFromMap = (orderId, itemsMap) => {
+    const items = itemsMap[orderId] || [];
     return items.reduce((sum, item) => sum + (item.qty || 0), 0);
   };
 
@@ -148,6 +139,9 @@ export default function ExportCenter({ user, customRole }) {
         return;
       }
 
+      // Fetch items on-demand
+      const itemsMap = await fetchItemsForOrders(sapOrders.map(o => o.id));
+
       const data = sapOrders.map((order, index) => {
         const nilaiBarang = order.total_belanja || 0;
         const nilaiAsuransi = nilaiBarang > 500000 ? 0.3 : '';
@@ -157,7 +151,7 @@ export default function ExportCenter({ user, customRole }) {
           'KODE LAYANAN': 'UDRREG',
           'KODE ISI BARANG': 'SHTPC',
           'ID KECAMATAN PENERIMA': order.kecamatan_kode,
-          'DESKRIPSI ITEM': getItemDescription(order.id),
+          'DESKRIPSI ITEM': getItemDescriptionFromMap(order.id, itemsMap),
           'KILO': order.berat_kg || 1,
           'KOLI': 1,
           'PANJANG': 1,
@@ -203,6 +197,9 @@ export default function ExportCenter({ user, customRole }) {
         'COD', 'Jenis Layanan', 'Biaya Pengiriman', 'Biaya Lainnya'
       ];
 
+      // Fetch items on-demand
+      const itemsMap = await fetchItemsForOrders(jntOrders.map(o => o.id));
+
       const data = jntOrders.map(order => ({
         'Berat': order.berat_kg || 1,
         'Nama Pengirim': JNT_SENDER.nama,
@@ -223,12 +220,12 @@ export default function ExportCenter({ user, customRole }) {
         'Alamat Penerima': order.alamat,
         'Informasi Alamat Penerima': 0,
         'Cara Pembayaran': 'BULANAN',
-        'Nama Barang': getItemDescription(order.id),
+        'Nama Barang': getItemDescriptionFromMap(order.id, itemsMap),
         'Kategori Barang': '',
         'Nilai Barang': order.total_belanja || 0,
         'Jenis asuransi': 0,
         'Apakah Input Asuransi?': 0,
-        'Jumlah': getTotalQty(order.id),
+        'Jumlah': getTotalQtyFromMap(order.id, itemsMap),
         'Jenis Barang': 'BARANG',
         'Keterangan': 'TOLONG HUBUNGI SEBELUM DIKIRIM!',
         'Nomor pesanan e-commerce': '',
@@ -255,10 +252,13 @@ export default function ExportCenter({ user, customRole }) {
         'Alamat Pengiriman', 'Jasa Pengiriman', 'PLN/INPUT', 'Tgl Kirim'
       ];
 
+      // Fetch items on-demand untuk semua resiOrders
+      const itemsMap = await fetchItemsForOrders(resiOrders.map(o => o.id));
+
       // Create rows per item with proper ongkir division
       const data = [];
       for (const order of resiOrders) {
-        const items = getItemsForOrder(order.id);
+        const items = itemsMap[order.id] || [];
         const totalQty = items.reduce((sum, item) => sum + (item.qty || 1), 0) || 1;
         const ongkirPerItem = (order.ongkir || 0) / totalQty;
         

@@ -7,13 +7,14 @@ router.use(authMiddleware);
 
 router.get('/', async (req, res) => {
   try {
-    const { search, provinsi, kota_kab } = req.query;
+    const { search, provinsi, kota_kab, page = 1, limit = 50 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
     let where = [];
     let params = [];
     let idx = 1;
 
     if (search) {
-      where.push(`(kecamatan ILIKE $${idx} OR kota_kab ILIKE $${idx})`);
+      where.push(`(kecamatan ILIKE $${idx} OR kota_kab ILIKE $${idx} OR provinsi ILIKE $${idx})`);
       params.push(`%${search}%`);
       idx++;
     }
@@ -26,14 +27,19 @@ router.get('/', async (req, res) => {
       params.push(kota_kab);
     }
 
-    const limit = parseInt(req.query.limit) || 500;
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const result = await query(`SELECT * FROM kecamatan_jnt ${whereClause} ORDER BY provinsi, kota_kab, kecamatan LIMIT $${idx}`, [...params, limit]);
-    res.json({ data: result.rows });
+    const countResult = await query(`SELECT COUNT(*) FROM kecamatan_jnt ${whereClause}`, params);
+    const total = parseInt(countResult.rows[0].count);
+    const result = await query(
+      `SELECT * FROM kecamatan_jnt ${whereClause} ORDER BY provinsi, kota_kab, kecamatan LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, parseInt(limit), offset]
+    );
+    res.json({ data: result.rows, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch kecamatan JNT' });
   }
 });
+
 
 router.get('/provinces', async (req, res) => {
   try {

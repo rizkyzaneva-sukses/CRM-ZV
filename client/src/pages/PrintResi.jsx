@@ -3,8 +3,10 @@ import { api } from '@/lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Printer, Loader2, CheckCircle, Truck, Package } from 'lucide-react';
+import { Printer, Loader2, CheckCircle, Truck, Package, Calendar } from 'lucide-react';
 import ResiLabel from '@/components/resi/ResiLabel';
 import { normalizeShippingService } from '@/components/utils/shippingUtils';
 import { formatInJakarta, getTodayJakarta } from '@/components/utils/dateUtils';
@@ -102,6 +104,12 @@ export default function PrintResi({ user, customRole }) {
   const [showUnprintedSapJnt, setShowUnprintedSapJnt] = useState(true);
   const queryClient = useQueryClient();
 
+  // Filter tanggal — default: hari ini untuk STAFF, 7 hari terakhir untuk Finance
+  const today = getTodayJakarta();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const [dateFrom, setDateFrom] = useState(isFinance ? sevenDaysAgo : today);
+  const [dateTo, setDateTo] = useState(today);
+
   const toggleOrderSelection = (orderId) => {
     setSelectedOrders(prev =>
       prev.includes(orderId)
@@ -118,60 +126,36 @@ export default function PrintResi({ user, customRole }) {
     );
   };
 
-  // Get orders for SAP & J&T
+  // Get orders for SAP & J&T — filter server-side by tanggal
   const { data: sapJntOrders = [] } = useQuery({
-    queryKey: ['sapJntOrders', user?.email, isFinance],
+    queryKey: ['sapJntOrders', user?.email, isFinance, dateFrom, dateTo],
     queryFn: async () => {
-      if (isFinance) {
-        const data = await api.getOrders({ limit: 2000 });
-        const allOrders = data.orders || [];
-        return allOrders.filter(o => {
-          const normalized = normalizeShippingService(o.jasa_pengiriman);
-          return (o.status_pesanan === 'READY_TO_PROCESS' || o.status_pesanan === 'RESI_UPDATED') && 
-            (normalized === 'sap' || normalized === 'jnt');
-        });
-      } else {
-        const data = await api.getOrders({ created_by: user?.email, limit: 1000 });
-        const userOrders = data.orders || [];
-        const today = getTodayJakarta();
-        return userOrders.filter(order => {
-          const orderDate = order.order_date;
-          const normalized = normalizeShippingService(order.jasa_pengiriman);
-          return orderDate === today &&
-            (order.status_pesanan === 'READY_TO_PROCESS' || order.status_pesanan === 'RESI_UPDATED') && 
-            (normalized === 'sap' || normalized === 'jnt');
-        });
-      }
+      const params = { limit: 500, date_from: dateFrom, date_to: dateTo };
+      if (!isFinance) params.created_by = user?.email;
+      const data = await api.getOrders(params);
+      const allOrders = data.orders || [];
+      return allOrders.filter(o => {
+        const normalized = normalizeShippingService(o.jasa_pengiriman);
+        return (o.status_pesanan === 'READY_TO_PROCESS' || o.status_pesanan === 'RESI_UPDATED') && 
+          (normalized === 'sap' || normalized === 'jnt');
+      });
     },
     enabled: !!user,
   });
 
-  // Get orders for non-SAP, non-J&T (dengan dan tanpa no_resi untuk reprint)
+  // Get orders for non-SAP, non-J&T — filter server-side by tanggal
   const { data: orders = [] } = useQuery({
-    queryKey: ['otherExpedisiOrders', user?.email, isFinance],
+    queryKey: ['otherExpedisiOrders', user?.email, isFinance, dateFrom, dateTo],
     queryFn: async () => {
-      if (isFinance) {
-        const data = await api.getOrders({ limit: 2000 });
-        const allOrders = data.orders || [];
-        return allOrders.filter(o => {
-          const normalized = normalizeShippingService(o.jasa_pengiriman);
-          return (o.status_pesanan === 'READY_TO_PROCESS' || o.status_pesanan === 'RESI_UPDATED') && 
-            normalized !== 'sap' &&
-            normalized !== 'jnt';
-        });
-      } else {
-        const data = await api.getOrders({ created_by: user?.email, limit: 1000 });
-        const userOrders = data.orders || [];
-        const today = getTodayJakarta();
-        return userOrders.filter(order => {
-          const orderDate = order.order_date;
-          const normalized = normalizeShippingService(order.jasa_pengiriman);
-          return orderDate === today &&
-            (order.status_pesanan === 'READY_TO_PROCESS' || order.status_pesanan === 'RESI_UPDATED') && 
-            normalized !== 'sap' &&
-            normalized !== 'jnt';
-        });
-      }
+      const params = { limit: 500, date_from: dateFrom, date_to: dateTo };
+      if (!isFinance) params.created_by = user?.email;
+      const data = await api.getOrders(params);
+      const allOrders = data.orders || [];
+      return allOrders.filter(o => {
+        const normalized = normalizeShippingService(o.jasa_pengiriman);
+        return (o.status_pesanan === 'READY_TO_PROCESS' || o.status_pesanan === 'RESI_UPDATED') && 
+          normalized !== 'sap' && normalized !== 'jnt';
+      });
     },
     enabled: !!user,
   });
@@ -182,11 +166,8 @@ export default function PrintResi({ user, customRole }) {
     queryFn: () => api.getPrintLogs({ limit: 1000 }).then(res => res.print_logs || []),
   });
 
-  // Get order items
-  const { data: allItems = [] } = useQuery({
-    queryKey: ['allOrderItems'],
-    queryFn: () => api.getOrderItems({ limit: 5000 }).then(res => res.order_items || []),
-  });
+  // allOrderItems TIDAK di-load saat halaman buka — hanya di-fetch on-demand saat print
+  // Lihat fungsi getItemsForOrderAsync di bawah
 
   // Get all users (for penginput info)
   const { data: allUsers = [] } = useQuery({
@@ -194,8 +175,10 @@ export default function PrintResi({ user, customRole }) {
     queryFn: () => api.getUsers().then(res => res.users || []),
   });
 
-  const getItemsForOrder = (orderId) => {
-    return allItems.filter(item => item.order_id === orderId);
+  // Fetch items on-demand saat print
+  const getItemsForOrderAsync = async (orderId) => {
+    const res = await api.getOrderItems({ order_id: orderId, limit: 50 });
+    return res.order_items || [];
   };
 
   const getOrderCreator = (orderCreatedBy) => {
@@ -285,11 +268,17 @@ export default function PrintResi({ user, customRole }) {
         ordersToProcess.map(order => generateOtherResiMutation.mutateAsync(order))
       );
 
+      // Fetch items for all orders in batch (on-demand)
+      const itemsMap = {};
+      await Promise.all(updatedOrders.map(async order => {
+        itemsMap[order.id] = await getItemsForOrderAsync(order.id);
+      }));
+
       // Create batch print window
       setTimeout(() => {
         const pagesHtml = updatedOrders.map((order, idx) => {
           const creator = getOrderCreator(order.created_by);
-          return buildLabelHtml(order, getItemsForOrder(order.id), creator?.full_name || 'Zaneva', getSenderPhone(creator), `resi${idx}`, `id${idx}`, order.no_resi);
+          return buildLabelHtml(order, itemsMap[order.id] || [], creator?.full_name || 'Zaneva', getSenderPhone(creator), `resi${idx}`, `id${idx}`, order.no_resi);
         }).join('');
         const barcodeScript = buildBarcodeScript(updatedOrders.map((order, idx) => ({
           resiId: `resi${idx}`, resiVal: order.no_resi, idId: `id${idx}`, idVal: order.order_number
@@ -303,7 +292,7 @@ export default function PrintResi({ user, customRole }) {
     }
   };
 
-  const handleReprintFromLog = (log) => {
+  const handleReprintFromLog = async (log) => {
     const allOrdersList = [...sapJntOrders, ...orders];
     const order = allOrdersList.find(o => o.order_number === log.order_number);
     if (!order) {
@@ -311,7 +300,8 @@ export default function PrintResi({ user, customRole }) {
       return;
     }
     const creator = getOrderCreator(order.created_by);
-    const pageHtml = buildLabelHtml(order, getItemsForOrder(order.id), creator?.full_name || 'Zaneva', getSenderPhone(creator), 'resi0', 'id0', log.no_resi);
+    const items = await getItemsForOrderAsync(order.id);
+    const pageHtml = buildLabelHtml(order, items, creator?.full_name || 'Zaneva', getSenderPhone(creator), 'resi0', 'id0', log.no_resi);
     const barcodeScript = buildBarcodeScript([{ resiId: 'resi0', resiVal: log.no_resi, idId: 'id0', idVal: order.order_number }]);
     openPrintWindow(`Reprint - ${log.order_number}`, pageHtml, barcodeScript);
   };
@@ -326,10 +316,15 @@ export default function PrintResi({ user, customRole }) {
         ordersToProcess.map(order => generateResiMutation.mutateAsync(order))
       );
 
+      const itemsMap = {};
+      await Promise.all(updatedOrders.map(async order => {
+        itemsMap[order.id] = await getItemsForOrderAsync(order.id);
+      }));
+
       setTimeout(() => {
         const pagesHtml = updatedOrders.map((order, idx) => {
           const creator = getOrderCreator(order.created_by);
-          return buildLabelHtml(order, getItemsForOrder(order.id), creator?.full_name || 'Zaneva', getSenderPhone(creator), `resi${idx}`, `id${idx}`, order.no_resi);
+          return buildLabelHtml(order, itemsMap[order.id] || [], creator?.full_name || 'Zaneva', getSenderPhone(creator), `resi${idx}`, `id${idx}`, order.no_resi);
         }).join('');
         const barcodeScript = buildBarcodeScript(updatedOrders.map((order, idx) => ({
           resiId: `resi${idx}`, resiVal: order.no_resi, idId: `id${idx}`, idVal: order.order_number
@@ -344,11 +339,42 @@ export default function PrintResi({ user, customRole }) {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Print Resi Label</h1>
-        <p className="text-muted-foreground mt-1">
-          Generate dan print resi untuk semua ekspedisi
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Print Resi Label</h1>
+          <p className="text-muted-foreground mt-1">
+            Generate dan print resi untuk semua ekspedisi
+          </p>
+        </div>
+        {/* Filter Tanggal */}
+        <div className="flex items-end gap-3 flex-wrap">
+          <div>
+            <Label className="text-muted-foreground text-xs">Dari Tanggal</Label>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="mt-1 bg-muted border-border text-foreground"
+            />
+          </div>
+          <div>
+            <Label className="text-muted-foreground text-xs">Sampai Tanggal</Label>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="mt-1 bg-muted border-border text-foreground"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setDateFrom(today); setDateTo(today); }}
+            className="border-border text-muted-foreground hover:text-foreground"
+          >
+            Hari Ini
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="sapjnt" className="space-y-4">

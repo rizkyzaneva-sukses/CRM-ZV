@@ -1,100 +1,85 @@
-import * as React from "react"
-import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react"
+import React from 'react';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { cn } from "@/lib/utils"
-import { buttonVariants } from "@/components/ui/button";
+/**
+ * Reusable Pagination Component
+ * @param {number} page - halaman saat ini (1-indexed)
+ * @param {number} totalPages - total halaman
+ * @param {function} onPageChange - callback (newPage) => void
+ * @param {number} total - total records (opsional, untuk info)
+ * @param {number} pageSize - jumlah per halaman (opsional)
+ */
+export default function Pagination({ page, totalPages, onPageChange, total, pageSize }) {
+  if (totalPages <= 1) return null;
 
-const Pagination = ({
-  className,
-  ...props
-}) => (
-  <nav
-    role="navigation"
-    aria-label="pagination"
-    className={cn("mx-auto flex w-full justify-center", className)}
-    {...props} />
-)
-Pagination.displayName = "Pagination"
+  const getPageRange = () => {
+    const delta = 2;
+    const left = Math.max(1, page - delta);
+    const right = Math.min(totalPages, page + delta);
+    const range = [];
+    for (let i = left; i <= right; i++) range.push(i);
 
-const PaginationContent = React.forwardRef(({ className, ...props }, ref) => (
-  <ul
-    ref={ref}
-    className={cn("flex flex-row items-center gap-1", className)}
-    {...props} />
-))
-PaginationContent.displayName = "PaginationContent"
+    const result = [];
+    if (left > 1) { result.push(1); if (left > 2) result.push('...'); }
+    result.push(...range);
+    if (right < totalPages) { if (right < totalPages - 1) result.push('...'); result.push(totalPages); }
+    return result;
+  };
 
-const PaginationItem = React.forwardRef(({ className, ...props }, ref) => (
-  <li ref={ref} className={cn("", className)} {...props} />
-))
-PaginationItem.displayName = "PaginationItem"
+  const from = (total != null && pageSize != null) ? (page - 1) * pageSize + 1 : null;
+  const to   = (total != null && pageSize != null) ? Math.min(page * pageSize, total) : null;
 
-const PaginationLink = ({
-  className,
-  isActive,
-  size = "icon",
-  ...props
-}) => (
-  <a
-    aria-current={isActive ? "page" : undefined}
-    className={cn(buttonVariants({
-      variant: isActive ? "outline" : "ghost",
-      size,
-    }), className)}
-    {...props} />
-)
-PaginationLink.displayName = "PaginationLink"
+  return (
+    <div className="flex items-center justify-between px-2 py-3 border-t border-border">
+      <div className="text-sm text-muted-foreground">
+        {from != null ? (
+          <span>
+            Menampilkan <span className="font-medium text-foreground">{from}–{to}</span> dari{' '}
+            <span className="font-medium text-foreground">{total.toLocaleString('id-ID')}</span> data
+          </span>
+        ) : (
+          <span>Halaman <span className="font-medium text-foreground">{page}</span> dari <span className="font-medium text-foreground">{totalPages}</span></span>
+        )}
+      </div>
 
-const PaginationPrevious = ({
-  className,
-  ...props
-}) => (
-  <PaginationLink
-    aria-label="Go to previous page"
-    size="default"
-    className={cn("gap-1 pl-2.5", className)}
-    {...props}>
-    <ChevronLeft className="h-4 w-4" />
-    <span>Previous</span>
-  </PaginationLink>
-)
-PaginationPrevious.displayName = "PaginationPrevious"
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost" size="sm"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
 
-const PaginationNext = ({
-  className,
-  ...props
-}) => (
-  <PaginationLink
-    aria-label="Go to next page"
-    size="default"
-    className={cn("gap-1 pr-2.5", className)}
-    {...props}>
-    <span>Next</span>
-    <ChevronRight className="h-4 w-4" />
-  </PaginationLink>
-)
-PaginationNext.displayName = "PaginationNext"
+        {getPageRange().map((p, idx) =>
+          p === '...' ? (
+            <span key={`e${idx}`} className="px-2 text-muted-foreground text-sm">…</span>
+          ) : (
+            <Button
+              key={p} variant="ghost" size="sm"
+              onClick={() => onPageChange(p)}
+              className={`h-8 w-8 p-0 text-sm ${
+                p === page
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {p}
+            </Button>
+          )
+        )}
 
-const PaginationEllipsis = ({
-  className,
-  ...props
-}) => (
-  <span
-    aria-hidden
-    className={cn("flex h-9 w-9 items-center justify-center", className)}
-    {...props}>
-    <MoreHorizontal className="h-4 w-4" />
-    <span className="sr-only">More pages</span>
-  </span>
-)
-PaginationEllipsis.displayName = "PaginationEllipsis"
-
-export {
-  Pagination,
-  PaginationContent,
-  PaginationLink,
-  PaginationItem,
-  PaginationPrevious,
-  PaginationNext,
-  PaginationEllipsis,
+        <Button
+          variant="ghost" size="sm"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
 }

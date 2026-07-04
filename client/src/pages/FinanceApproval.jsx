@@ -6,6 +6,7 @@ import { createPageUrl } from '@/utils';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import Pagination from "@/components/ui/Pagination";
 import {
   Table,
   TableBody,
@@ -24,29 +25,38 @@ import {
 } from 'lucide-react';
 import { formatInJakarta } from '@/components/utils/dateUtils';
 
+
 export default function FinanceApproval({ user, customRole }) {
   const queryClient = useQueryClient();
   const [selectedOrders, setSelectedOrders] = useState([]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   const isFinance = customRole === 'FINANCE' || customRole === 'OWNER';
 
-  const { data: pendingOrders = [], isLoading } = useQuery({
-    queryKey: ['pendingOrders'],
+  const { data: result = {}, isLoading } = useQuery({
+    queryKey: ['pendingOrders', page],
     queryFn: async () => {
-      const data = await api.getOrders({ status_pesanan: 'WAITING_FINANCE', limit: 1000 });
-      return data.orders || [];
+      const data = await api.getOrders({
+        status_pesanan: 'WAITING_FINANCE',
+        page,
+        limit: PAGE_SIZE,
+      });
+      return { orders: data.orders || [], total: data.total || 0 };
     },
     enabled: isFinance,
+    keepPreviousData: true,
   });
 
+  const pendingOrders = result.orders || [];
+  const total = result.total || 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+
   const bulkApproveMutation = useMutation({
-    mutationFn: async (status) => {
-      for (const orderId of selectedOrders) {
-        await api.updateOrder(orderId, {
-          finance_status: status,
-          status_pesanan: status === 'APPROVED' ? 'READY_TO_PROCESS' : 'REJECTED',
-        });
-      }
+    mutationFn: async (action) => {
+      // Gunakan route bulk-finance yang khusus untuk approve/reject
+      await api.bulkFinance(selectedOrders, action);
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['pendingOrders']);
@@ -56,11 +66,9 @@ export default function FinanceApproval({ user, customRole }) {
   });
 
   const singleApproveMutation = useMutation({
-    mutationFn: async ({ orderId, status }) => {
-      await api.updateOrder(orderId, {
-        finance_status: status,
-        status_pesanan: status === 'APPROVED' ? 'READY_TO_PROCESS' : 'REJECTED',
-      });
+    mutationFn: async ({ orderId, action }) => {
+      // Gunakan route finance yang khusus untuk approve/reject
+      await api.financeAction(orderId, action);
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['pendingOrders']);
@@ -94,12 +102,18 @@ export default function FinanceApproval({ user, customRole }) {
     }
   };
 
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+    setSelectedOrders([]); // clear selection when changing page
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Finance Approval</h1>
         <p className="text-muted-foreground mt-1">
           Approve atau reject order CASH yang pending
+          {total > 0 && <span className="ml-2 text-emerald-400 font-medium">({total.toLocaleString('id-ID')} total)</span>}
         </p>
       </div>
 
@@ -112,7 +126,7 @@ export default function FinanceApproval({ user, customRole }) {
             </p>
             <div className="flex gap-2">
               <Button
-                onClick={() => bulkApproveMutation.mutate('APPROVED')}
+                onClick={() => bulkApproveMutation.mutate('approve')}
                 disabled={bulkApproveMutation.isPending}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
@@ -124,7 +138,7 @@ export default function FinanceApproval({ user, customRole }) {
                 Approve All
               </Button>
               <Button
-                onClick={() => bulkApproveMutation.mutate('REJECTED')}
+                onClick={() => bulkApproveMutation.mutate('reject')}
                 disabled={bulkApproveMutation.isPending}
                 variant="destructive"
               >
@@ -190,7 +204,7 @@ export default function FinanceApproval({ user, customRole }) {
                     <TableCell className="text-foreground">{order.nama_pemesan}</TableCell>
                     <TableCell className="text-muted-foreground">{order.created_by}</TableCell>
                     <TableCell className="text-foreground text-right font-medium">
-                      Rp {(order.total || 0).toLocaleString('id-ID')}
+                      Rp {Math.round(order.total || 0).toLocaleString('id-ID')}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{order.transfer_atas_nama || '—'}</TableCell>
                     <TableCell className="text-muted-foreground">{order.metode_pembayaran || '—'}</TableCell>
@@ -207,7 +221,7 @@ export default function FinanceApproval({ user, customRole }) {
                         </Link>
                         <Button
                           size="sm"
-                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, status: 'APPROVED' })}
+                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, action: 'approve' })}
                           disabled={singleApproveMutation.isPending}
                           className="bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
@@ -215,7 +229,7 @@ export default function FinanceApproval({ user, customRole }) {
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, status: 'REJECTED' })}
+                          onClick={() => singleApproveMutation.mutate({ orderId: order.id, action: 'reject' })}
                           disabled={singleApproveMutation.isPending}
                           variant="destructive"
                         >
@@ -227,6 +241,14 @@ export default function FinanceApproval({ user, customRole }) {
                 ))}
               </TableBody>
             </Table>
+            {/* Pagination */}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              total={total}
+              pageSize={PAGE_SIZE}
+            />
           </div>
         )}
       </Card>

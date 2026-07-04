@@ -5,7 +5,9 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import Pagination from '@/components/ui/Pagination';
 import {
+
   Table,
   TableBody,
   TableCell,
@@ -487,21 +489,91 @@ export default function MasterData({ user, userRole }) {
     };
   }, [searchInputs]);
 
-  // Queries
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => api.getProducts({ limit: 10000 }).then(res => res.products || []),
-  });
+  // Queries — server-side paginated (50/page) dengan search ke server
+  const PAGE_SIZE = 50;
 
-  const { data: kecamatanSAP = [] } = useQuery({
-    queryKey: ['kecamatanSAP'],
-    queryFn: () => api.getSapKecamatans({ limit: 10000 }).then(res => res.data || []),
-  });
+  // --- Products ---
+  const [productPage, setProductPage] = useState(1);
+  const [productSearch, setProductSearch] = useState('');
+  const [productSearchInput, setProductSearchInput] = useState('');
 
-  const { data: kecamatanJNT = [] } = useQuery({
-    queryKey: ['kecamatanJNT'],
-    queryFn: () => api.getJntKecamatans({ limit: 10000 }).then(res => res.data || []),
+  const { data: productResult = {} } = useQuery({
+    queryKey: ['products', productPage, productSearch],
+    queryFn: () => api.getProducts({ page: productPage, limit: PAGE_SIZE, search: productSearch || undefined })
+      .then(res => ({ products: res.products || [], total: res.total || 0 })),
+    keepPreviousData: true,
   });
+  const products = productResult.products || [];
+  const productTotal = productResult.total || 0;
+  const productTotalPages = Math.ceil(productTotal / PAGE_SIZE);
+
+  // --- Kecamatan SAP ---
+  const [sapPage, setSapPage] = useState(1);
+  const [sapSearch, setSapSearch] = useState('');
+  const [sapSearchInput, setSapSearchInput] = useState('');
+
+  const { data: sapResult = {} } = useQuery({
+    queryKey: ['kecamatanSAP', sapPage, sapSearch],
+    queryFn: () => api.getSapKecamatans({ page: sapPage, limit: PAGE_SIZE, search: sapSearch || undefined })
+      .then(res => ({ data: res.data || [], total: res.total || 0 })),
+    keepPreviousData: true,
+  });
+  const kecamatanSAP = sapResult.data || [];
+  const sapTotal = sapResult.total || 0;
+  const sapTotalPages = Math.ceil(sapTotal / PAGE_SIZE);
+
+  // --- Kecamatan JNT ---
+  const [jntPage, setJntPage] = useState(1);
+  const [jntSearch, setJntSearch] = useState('');
+  const [jntSearchInput, setJntSearchInput] = useState('');
+
+  const { data: jntResult = {} } = useQuery({
+    queryKey: ['kecamatanJNT', jntPage, jntSearch],
+    queryFn: () => api.getJntKecamatans({ page: jntPage, limit: PAGE_SIZE, search: jntSearch || undefined })
+      .then(res => ({ data: res.data || [], total: res.total || 0 })),
+    keepPreviousData: true,
+  });
+  const kecamatanJNT = jntResult.data || [];
+  const jntTotal = jntResult.total || 0;
+  const jntTotalPages = Math.ceil(jntTotal / PAGE_SIZE);
+
+  // Debounce search handlers
+  const handleProductSearch = React.useCallback(
+    React.useMemo(() => {
+      let timer;
+      return (val) => {
+        setProductSearchInput(val);
+        clearTimeout(timer);
+        timer = setTimeout(() => { setProductSearch(val); setProductPage(1); }, 400);
+      };
+    }, []),
+    []
+  );
+
+  const handleSapSearch = React.useCallback(
+    React.useMemo(() => {
+      let timer;
+      return (val) => {
+        setSapSearchInput(val);
+        clearTimeout(timer);
+        timer = setTimeout(() => { setSapSearch(val); setSapPage(1); }, 400);
+      };
+    }, []),
+    []
+  );
+
+  const handleJntSearch = React.useCallback(
+    React.useMemo(() => {
+      let timer;
+      return (val) => {
+        setJntSearchInput(val);
+        clearTimeout(timer);
+        timer = setTimeout(() => { setJntSearch(val); setJntPage(1); }, 400);
+      };
+    }, []),
+    []
+  );
+
 
   // Retry with exponential backoff
   const retryWithBackoff = async (fn, retries = 3, delay = 1000) => {
@@ -1155,6 +1227,25 @@ ${failed > 0 ? '⚠ Ada error, klik "Download Error Log" untuk detail' : ''}
             deleteSingleMutation={deleteSingleMutation}
             onEdit={setEditingProduct}
           />
+          {/* Server-side search + pagination untuk Produk */}
+          <div className="flex items-center gap-3 mt-3 mb-1">
+            <Input
+              placeholder="Cari produk (nama / SKU / brand)..."
+              value={productSearchInput}
+              onChange={e => handleProductSearch(e.target.value)}
+              className="bg-muted border-border text-foreground max-w-xs"
+            />
+            <span className="text-sm text-muted-foreground">
+              {productTotal.toLocaleString('id-ID')} total produk
+            </span>
+          </div>
+          <Pagination
+            page={productPage}
+            totalPages={productTotalPages}
+            onPageChange={setProductPage}
+            total={productTotal}
+            pageSize={PAGE_SIZE}
+          />
         </TabsContent>
 
         <TabsContent value="shipping">
@@ -1193,6 +1284,25 @@ ${failed > 0 ? '⚠ Ada error, klik "Download Error Log" untuk detail' : ''}
             downloadErrorLog={downloadErrorLog}
             deleteSingleMutation={deleteSingleMutation}
           />
+          {/* Server-side search + pagination untuk Kecamatan SAP */}
+          <div className="flex items-center gap-3 mt-3 mb-1">
+            <Input
+              placeholder="Cari kecamatan / kota / kode SAP..."
+              value={sapSearchInput}
+              onChange={e => handleSapSearch(e.target.value)}
+              className="bg-muted border-border text-foreground max-w-xs"
+            />
+            <span className="text-sm text-muted-foreground">
+              {sapTotal.toLocaleString('id-ID')} total kecamatan SAP
+            </span>
+          </div>
+          <Pagination
+            page={sapPage}
+            totalPages={sapTotalPages}
+            onPageChange={setSapPage}
+            total={sapTotal}
+            pageSize={PAGE_SIZE}
+          />
         </TabsContent>
 
         <TabsContent value="jnt">
@@ -1226,6 +1336,25 @@ ${failed > 0 ? '⚠ Ada error, klik "Download Error Log" untuk detail' : ''}
             onDeleteSingle={deleteSingleMutation.mutate}
             downloadErrorLog={downloadErrorLog}
             deleteSingleMutation={deleteSingleMutation}
+          />
+          {/* Server-side search + pagination untuk Kecamatan JNT */}
+          <div className="flex items-center gap-3 mt-3 mb-1">
+            <Input
+              placeholder="Cari kecamatan / kota / provinsi J&T..."
+              value={jntSearchInput}
+              onChange={e => handleJntSearch(e.target.value)}
+              className="bg-muted border-border text-foreground max-w-xs"
+            />
+            <span className="text-sm text-muted-foreground">
+              {jntTotal.toLocaleString('id-ID')} total kecamatan J&T
+            </span>
+          </div>
+          <Pagination
+            page={jntPage}
+            totalPages={jntTotalPages}
+            onPageChange={setJntPage}
+            total={jntTotal}
+            pageSize={PAGE_SIZE}
           />
         </TabsContent>
       </Tabs>
