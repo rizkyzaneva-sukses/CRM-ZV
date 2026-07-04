@@ -32,7 +32,7 @@ export default function FinanceApproval({ user, customRole }) {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
-  const isFinance = customRole === 'FINANCE' || customRole === 'OWNER';
+  const isFinance = customRole === 'FINANCE' || customRole === 'OWNER' || customRole === 'ADMIN' || user?.role === 'admin';
 
   const { data: result = {}, isLoading } = useQuery({
     queryKey: ['pendingOrders', page],
@@ -59,10 +59,13 @@ export default function FinanceApproval({ user, customRole }) {
       await api.bulkFinance(selectedOrders, action);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['pendingOrders']);
-      queryClient.invalidateQueries(['orders']);
+      queryClient.invalidateQueries({ queryKey: ['pendingOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
       setSelectedOrders([]);
     },
+    onError: (err) => {
+      alert('Gagal memproses bulk approval: ' + (err.message || 'Error server'));
+    }
   });
 
   const singleApproveMutation = useMutation({
@@ -71,10 +74,14 @@ export default function FinanceApproval({ user, customRole }) {
       await api.financeAction(orderId, action);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['pendingOrders']);
-      queryClient.invalidateQueries(['orders']);
+      queryClient.invalidateQueries({ queryKey: ['pendingOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
+    onError: (err) => {
+      alert('Gagal memproses approval: ' + (err.message || 'Error server'));
+    }
   });
+
 
   if (!isFinance) {
     return (

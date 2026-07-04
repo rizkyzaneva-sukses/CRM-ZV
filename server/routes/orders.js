@@ -197,37 +197,15 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Finance approve/reject
-router.post('/:id/finance', async (req, res) => {
-  try {
-    const { action } = req.body; // 'approve' or 'reject'
-    const order = await query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
-    if (order.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
-
-    const newStatus = action === 'approve' ? 'READY_TO_PROCESS' : 'REJECTED';
-    const financeStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-
-    const result = await query(
-      `UPDATE orders SET status_pesanan=$1, finance_status=$2, finance_verified_at=NOW(),
-        finance_verified_by=$3, last_updated_by=$3, updated_at=NOW()
-       WHERE id=$4 RETURNING *`,
-      [newStatus, financeStatus, req.user.email, req.params.id]
-    );
-    res.json({ order: result.rows[0] });
-  } catch (err) {
-    console.error('Finance action error:', err);
-    res.status(500).json({ error: 'Finance action failed' });
-  }
-});
-
 // Bulk finance action
 router.post('/bulk-finance', async (req, res) => {
   try {
     const { order_ids, action } = req.body;
     if (!order_ids || !Array.isArray(order_ids)) return res.status(400).json({ error: 'order_ids array required' });
 
-    const newStatus = action === 'approve' ? 'READY_TO_PROCESS' : 'REJECTED';
-    const financeStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    const isApprove = action && (String(action).toLowerCase() === 'approve' || String(action).toLowerCase() === 'approved');
+    const newStatus = isApprove ? 'READY_TO_PROCESS' : 'REJECTED';
+    const financeStatus = isApprove ? 'APPROVED' : 'REJECTED';
 
     for (const id of order_ids) {
       await query(
@@ -240,6 +218,30 @@ router.post('/bulk-finance', async (req, res) => {
   } catch (err) {
     console.error('Bulk finance error:', err);
     res.status(500).json({ error: 'Bulk finance action failed' });
+  }
+});
+
+// Finance approve/reject
+router.post('/:id/finance', async (req, res) => {
+  try {
+    const { action } = req.body; // 'approve' or 'reject'
+    const order = await query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (order.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+
+    const isApprove = action && (String(action).toLowerCase() === 'approve' || String(action).toLowerCase() === 'approved');
+    const newStatus = isApprove ? 'READY_TO_PROCESS' : 'REJECTED';
+    const financeStatus = isApprove ? 'APPROVED' : 'REJECTED';
+
+    const result = await query(
+      `UPDATE orders SET status_pesanan=$1, finance_status=$2, finance_verified_at=NOW(),
+        finance_verified_by=$3, last_updated_by=$3, updated_at=NOW()
+       WHERE id=$4 RETURNING *`,
+      [newStatus, financeStatus, req.user.email, req.params.id]
+    );
+    res.json({ order: result.rows[0] });
+  } catch (err) {
+    console.error('Finance action error:', err);
+    res.status(500).json({ error: 'Finance action failed' });
   }
 });
 

@@ -47,16 +47,19 @@ export default function OrderDetail({ user, customRole }) {
 
   const approveMutation = useMutation({
     mutationFn: async (status) => {
-      await api.updateOrder(orderId, {
-        finance_status: status,
-        status_pesanan: status === 'APPROVED' ? 'READY_TO_PROCESS' : 'REJECTED',
-      });
+      const action = status === 'APPROVED' ? 'approve' : 'reject';
+      await api.financeAction(orderId, action);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['order', orderId]);
-      queryClient.invalidateQueries(['orders']);
+      queryClient.invalidateQueries({ queryKey: ['order', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['pendingOrders'] });
     },
+    onError: (err) => {
+      alert('Gagal memproses approval: ' + (err.message || 'Error server'));
+    }
   });
+
 
   // Check access
   const hasAccess = isFinance || order?.created_by === user?.email;
