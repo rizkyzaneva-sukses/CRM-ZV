@@ -24,7 +24,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { formatInJakarta } from '@/components/utils/dateUtils';
-
+import { formatRupiah } from '@/components/utils/currencyUtils';
 
 export default function FinanceApproval({ user, customRole }) {
   const queryClient = useQueryClient();
@@ -38,6 +38,7 @@ export default function FinanceApproval({ user, customRole }) {
     queryKey: ['pendingOrders', page],
     queryFn: async () => {
       const data = await api.getOrders({
+        status: 'WAITING_FINANCE',
         status_pesanan: 'WAITING_FINANCE',
         page,
         limit: PAGE_SIZE,
@@ -47,6 +48,7 @@ export default function FinanceApproval({ user, customRole }) {
     enabled: isFinance,
     keepPreviousData: true,
   });
+
 
   const pendingOrders = result.orders || [];
   const total = result.total || 0;
@@ -211,7 +213,7 @@ export default function FinanceApproval({ user, customRole }) {
                     <TableCell className="text-foreground">{order.nama_pemesan}</TableCell>
                     <TableCell className="text-muted-foreground">{order.created_by}</TableCell>
                     <TableCell className="text-foreground text-right font-medium">
-                      Rp {Math.round(order.total || 0).toLocaleString('id-ID')}
+                      {formatRupiah(order.total)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{order.transfer_atas_nama || '—'}</TableCell>
                     <TableCell className="text-muted-foreground">{order.metode_pembayaran || '—'}</TableCell>

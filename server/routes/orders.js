@@ -26,10 +26,16 @@ router.get('/', async (req, res) => {
       params.push(`%${search}%`);
       paramIdx++;
     }
-    if (status) {
-      where.push(`status_pesanan = $${paramIdx++}`);
-      params.push(status);
+    const targetStatus = status || req.query.status_pesanan;
+    if (targetStatus) {
+      if (targetStatus === 'WAITING_FINANCE') {
+        where.push(`(status_pesanan = 'WAITING_FINANCE' OR finance_status = 'PENDING')`);
+      } else {
+        where.push(`status_pesanan = $${paramIdx++}`);
+        params.push(targetStatus);
+      }
     }
+
     if (shipping) {
       where.push(`jasa_pengiriman ILIKE $${paramIdx++}`);
       params.push(`%${shipping}%`);

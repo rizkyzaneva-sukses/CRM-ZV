@@ -6,6 +6,8 @@ import { createPageUrl } from '@/utils';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { formatInJakarta } from '@/components/utils/dateUtils';
+import { formatRupiah } from '@/components/utils/currencyUtils';
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import {
@@ -737,7 +739,7 @@ export default function InputOrder({ user, userRole }) {
               <Label className="text-muted-foreground text-xs sm:text-sm">Total Belanja</Label>
               <div className="mt-1 p-2 sm:p-2.5 bg-muted border border-border rounded-md">
                 <p className="text-sm sm:text-base font-semibold text-foreground">
-                  Rp {form.total_belanja.toLocaleString('id-ID')}
+                  {formatRupiah(form.total_belanja)}
                 </p>
               </div>
             </div>
@@ -768,7 +770,7 @@ export default function InputOrder({ user, userRole }) {
               <Label className="text-muted-foreground text-xs sm:text-sm">Total</Label>
               <div className="mt-1 p-2 sm:p-2.5 bg-emerald-500/20 border border-emerald-500/30 rounded-md">
                 <p className="text-sm sm:text-lg font-bold text-emerald-400">
-                  Rp {total.toLocaleString('id-ID')}
+                  {formatRupiah(total)}
                 </p>
               </div>
             </div>

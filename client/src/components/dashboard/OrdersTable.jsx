@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Eye, FileText, Pencil, Trash2, SquarePen, Check, X } from 'lucide-react';
 import { formatInJakarta } from '@/components/utils/dateUtils';
+import { formatRupiah } from '@/components/utils/currencyUtils';
+
 
 export default function OrdersTable({ orders, loading, customRole }) {
   const navigate = useNavigate();
@@ -103,7 +105,7 @@ export default function OrdersTable({ orders, loading, customRole }) {
                   </span>
                 </TableCell>
                 <TableCell className="text-foreground text-right font-medium">
-                  Rp {(order.total || 0).toLocaleString('id-ID')}
+                  {formatRupiah(order.total)}
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={order.status_pesanan} />

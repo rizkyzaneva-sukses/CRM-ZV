@@ -20,6 +20,8 @@ import {
   Printer
 } from 'lucide-react';
 import { formatInJakarta } from '@/components/utils/dateUtils';
+import { formatRupiah } from '@/components/utils/currencyUtils';
+
 
 export default function OrderDetail({ user, customRole }) {
   const navigate = useNavigate();
@@ -282,20 +284,20 @@ export default function OrderDetail({ user, customRole }) {
             )}
             <div className="flex justify-between">
               <p className="text-muted-foreground">Total Belanja</p>
-              <p className="text-foreground">Rp {(order.total_belanja || 0).toLocaleString('id-ID')}</p>
+              <p className="text-foreground">{formatRupiah(order.total_belanja)}</p>
             </div>
             <div className="flex justify-between">
               <p className="text-muted-foreground">Ongkir</p>
-              <p className="text-foreground">Rp {(order.ongkir || 0).toLocaleString('id-ID')}</p>
+              <p className="text-foreground">{formatRupiah(order.ongkir)}</p>
             </div>
             <div className="flex justify-between">
               <p className="text-muted-foreground">Penanganan</p>
-              <p className="text-foreground">Rp {(order.penanganan || 0).toLocaleString('id-ID')}</p>
+              <p className="text-foreground">{formatRupiah(order.penanganan)}</p>
             </div>
             <div className="border-t border-border pt-3 flex justify-between">
               <p className="text-foreground font-semibold">Total</p>
               <p className="text-emerald-400 font-bold text-lg">
-                Rp {(order.total || 0).toLocaleString('id-ID')}
+                {formatRupiah(order.total)}
               </p>
             </div>
           </div>
@@ -327,7 +329,7 @@ export default function OrderDetail({ user, customRole }) {
                     <p className="text-foreground">x{item.qty}</p>
                     {item.harga_setelah_diskon > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        Rp {item.harga_setelah_diskon.toLocaleString('id-ID')}
+                        {formatRupiah(item.harga_setelah_diskon)}
                       </p>
                     )}
                   </div>

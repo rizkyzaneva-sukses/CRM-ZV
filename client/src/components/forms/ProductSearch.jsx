@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/popover";
 import { Check, ChevronsUpDown, X } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { formatRupiah } from '@/components/utils/currencyUtils';
 
-export default function ProductSearch({ onSelectProduct }) {
+export default function ProductSearch({ onSelectProduct, selectedProducts = [] }) {
+
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -79,7 +81,7 @@ export default function ProductSearch({ onSelectProduct }) {
                     <div className="font-medium">{product.nama_produk}</div>
                     <div className="text-xs text-muted-foreground">
                       {product.sku && `SKU: ${product.sku} • `}
-                      Rp {(product.harga || 0).toLocaleString('id-ID')}
+                      {formatRupiah(product.harga)}
                     </div>
                   </div>
                 </CommandItem>
