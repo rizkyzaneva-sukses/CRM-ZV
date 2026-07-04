@@ -587,6 +587,70 @@ export default function MasterData({ user, userRole }) {
     }
   };
 
+  // Helper for flexible Excel header matching (case-insensitive, space-trimmed, alias-supporting)
+  const getFlexibleValue = (row, fieldType) => {
+    if (!row || typeof row !== 'object') return '';
+
+    const directMap = {
+      sku: ['SKU', 'sku', 'Kode Produk', 'Kode Barang', 'Kode', 'Product Code', 'Item Code', 'SKU Produk'],
+      nama_produk: ['Nama Produk', 'nama_produk', 'NAMA PRODUK', 'Nama Barang', 'Nama', 'Product Name', 'Name', 'Deskripsi', 'Produk', 'Item Name'],
+      harga: ['Harga', 'harga', 'HARGA', 'Harga Jual', 'Price', 'Harga Satuan', 'Harga Setelah Diskon', 'Harga (Rp)', 'Amount'],
+      brand: ['Brand', 'brand', 'BRAND', 'Merk', 'Brands', 'Merek'],
+      kode: ['KODE KECAMATAN', 'Kode Kecamatan', 'kode_kecamatan', 'Kode', 'KODE', 'kode', 'ID Kecamatan', 'Kode SAP', 'KodeSap'],
+      kecamatan: ['KECAMATAN', 'Kecamatan', 'kecamatan', 'Nama Kecamatan', 'Distrik', 'District'],
+      kota_kab: ['KOTA/KAB', 'Kota/Kab', 'Kota/Kabupaten', 'Kota', 'KOTA', 'kota', 'Kabupaten', 'kota_kab', 'Kota Kab', 'City'],
+      provinsi: ['PROVINSI', 'Provinsi', 'provinsi', 'Prov', 'Province'],
+      status_tercover: ['Tercover / Tidak', 'status_tercover', 'STATUS_TERCOVER', 'Tercover', 'Status Tercover', 'Cover', 'Is Covered']
+    };
+
+    const directKeys = directMap[fieldType] || [fieldType];
+    for (const k of directKeys) {
+      if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+        return String(row[k]).trim();
+      }
+    }
+
+    // Fallback: normalize all keys in row
+    const normalizedRow = {};
+    for (const k of Object.keys(row)) {
+      const cleanKey = String(k).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      normalizedRow[cleanKey] = row[k];
+    }
+
+    const cleanCandidates = directKeys.map(k => String(k).trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+    for (const cand of cleanCandidates) {
+      if (normalizedRow[cand] !== undefined && normalizedRow[cand] !== null && String(normalizedRow[cand]).trim() !== '') {
+        return String(normalizedRow[cand]).trim();
+      }
+    }
+
+    return '';
+  };
+
+  const getItemKey = (item, entityName) => {
+    if (entityName === 'KecamatanSAP') {
+      const k = (item.kode || '').trim().toLowerCase();
+      if (k) return `sap_kode:${k}`;
+      const combo = `${item.provinsi || ''}-${item.kota_kab || ''}-${item.kecamatan || ''}`.trim().toLowerCase();
+      return combo !== '--' ? `sap_combo:${combo}` : null;
+    }
+    
+    if (entityName === 'KecamatanJNT') {
+      const combo = `${item.provinsi || ''}-${item.kota_kab || ''}-${item.kecamatan || ''}`.trim().toLowerCase();
+      return combo !== '--' ? `jnt_combo:${combo}` : null;
+    }
+    
+    if (entityName === 'Product') {
+      const sku = (item.sku || '').trim().toLowerCase();
+      const name = (item.nama_produk || '').trim().toLowerCase();
+      if (sku) return `prod_sku:${sku}`;
+      if (name) return `prod_name:${name}`;
+      return null;
+    }
+
+    return null;
+  };
+
   // Check for duplicates
   const removeDuplicates = (data, entityName) => {
     const seen = new Set();
@@ -594,19 +658,12 @@ export default function MasterData({ user, userRole }) {
     const duplicates = [];
 
     data.forEach((item, index) => {
-      let key;
-      if (entityName === 'KecamatanSAP') {
-        key = item.kode;
-      } else if (entityName === 'KecamatanJNT') {
-        key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
-      } else if (entityName === 'Product') {
-        key = item.sku || item.nama_produk;
-      }
+      const key = getItemKey(item, entityName);
 
-      if (seen.has(key)) {
+      if (key && seen.has(key)) {
         duplicates.push({ ...item, _rowNumber: index + 2 });
       } else {
-        seen.add(key);
+        if (key) seen.add(key);
         unique.push(item);
       }
     });
@@ -637,56 +694,63 @@ export default function MasterData({ user, userRole }) {
         return;
       }
 
+      const detectedHeaders = rawData[0] ? Object.keys(rawData[0]).join(', ') : 'Tidak ada';
+
       // Transform data based on entity
       let transformedData = [];
       let invalidRows = [];
       
       if (entityName === 'Product') {
         rawData.forEach((row, idx) => {
-          const item = {
-            sku: String(row['SKU'] || row['sku'] || ''),
-            nama_produk: String(row['Nama Produk'] || row['nama_produk'] || row['NAMA PRODUK'] || ''),
-            harga: parseFloat(row['Harga'] || row['harga'] || row['HARGA'] || 0),
-            brand: String(row['Brand'] || row['brand'] || row['BRAND'] || '')
-          };
+          const sku = getFlexibleValue(row, 'sku');
+          const nama_produk = getFlexibleValue(row, 'nama_produk');
+          const hargaRaw = getFlexibleValue(row, 'harga');
+          const harga = parseFloat(hargaRaw) || 0;
+          const brand = getFlexibleValue(row, 'brand');
+
+          const item = { sku, nama_produk, harga, brand };
+
           if (item.nama_produk) {
             transformedData.push(item);
           } else {
-            invalidRows.push({ row: idx + 2, reason: 'Nama produk kosong', data: row });
+            invalidRows.push({ row: idx + 2, reason: `Nama produk tidak ditemukan. Header di file: "${detectedHeaders}"`, data: row });
           }
         });
       } else if (entityName === 'KecamatanSAP') {
         rawData.forEach((row, idx) => {
-          const item = {
-            kode: String(row['KODE KECAMATAN'] || row['kode'] || ''),
-            kecamatan: String(row['KECAMATAN'] || row['Kecamatan'] || row['kecamatan'] || ''),
-            kota_kab: String(row['KOTA/KAB'] || row['Kota/Kab'] || row['kota_kab'] || ''),
-            provinsi: String(row['PROVINSI'] || row['Provinsi'] || row['provinsi'] || ''),
-            status_tercover: String(row['Tercover / Tidak'] || row['status_tercover'] || row['STATUS_TERCOVER'] || '')
-          };
-          if (item.kecamatan && item.provinsi && item.kode) {
+          const kode = getFlexibleValue(row, 'kode');
+          const kecamatan = getFlexibleValue(row, 'kecamatan');
+          const kota_kab = getFlexibleValue(row, 'kota_kab');
+          const provinsi = getFlexibleValue(row, 'provinsi');
+          const status_tercover = getFlexibleValue(row, 'status_tercover') || 'Ya';
+
+          const item = { kode, kecamatan, kota_kab, provinsi, status_tercover };
+
+          if (item.kecamatan && item.provinsi) {
             transformedData.push(item);
           } else {
-            invalidRows.push({ row: idx + 2, reason: 'Data tidak lengkap', data: row });
+            invalidRows.push({ row: idx + 2, reason: `Data tidak lengkap. Header di file: "${detectedHeaders}"`, data: row });
           }
         });
       } else if (entityName === 'KecamatanJNT') {
         rawData.forEach((row, idx) => {
-          const item = {
-            provinsi: String(row['Provinsi'] || row['provinsi'] || row['PROVINSI'] || ''),
-            kota_kab: String(row['Kota'] || row['kota'] || row['KOTA'] || row['Kota/Kab'] || ''),
-            kecamatan: String(row['Kecamatan'] || row['kecamatan'] || row['KECAMATAN'] || '')
-          };
+          const kode = getFlexibleValue(row, 'kode');
+          const kecamatan = getFlexibleValue(row, 'kecamatan');
+          const kota_kab = getFlexibleValue(row, 'kota_kab');
+          const provinsi = getFlexibleValue(row, 'provinsi');
+
+          const item = { kode, kecamatan, kota_kab, provinsi };
+
           if (item.kecamatan && item.provinsi) {
             transformedData.push(item);
           } else {
-            invalidRows.push({ row: idx + 2, reason: 'Data tidak lengkap', data: row });
+            invalidRows.push({ row: idx + 2, reason: `Data tidak lengkap. Header di file: "${detectedHeaders}"`, data: row });
           }
         });
       }
 
       if (transformedData.length === 0) {
-        alert('Tidak ada data valid. Pastikan header kolom sesuai format.');
+        alert(`Tidak ada data valid yang bisa dibaca.\nKolom yang terdeteksi di file Anda: "${detectedHeaders}"\n\nPastikan ada kolom Nama Produk / SKU.`);
         return;
       }
 
@@ -722,30 +786,17 @@ export default function MasterData({ user, userRole }) {
         const res = await api.getJntKecamatans({ limit: 50000 });
         existingData = res.data || [];
       }
-      const existingKeys = new Set();
       
+      const existingKeys = new Set();
       existingData.forEach(item => {
-        let key;
-        if (entityName === 'KecamatanSAP') {
-          key = item.kode;
-        } else if (entityName === 'KecamatanJNT') {
-          key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
-        } else if (entityName === 'Product') {
-          key = item.sku || item.nama_produk;
-        }
+        const key = getItemKey(item, entityName);
         if (key) existingKeys.add(key);
       });
       
       // Filter out items that already exist in database
       const toInsert = unique.filter(item => {
-        let key;
-        if (entityName === 'KecamatanSAP') {
-          key = item.kode;
-        } else if (entityName === 'KecamatanJNT') {
-          key = `${item.provinsi}-${item.kota_kab}-${item.kecamatan}`;
-        } else if (entityName === 'Product') {
-          key = item.sku || item.nama_produk;
-        }
+        const key = getItemKey(item, entityName);
+        if (!key) return true;
         return !existingKeys.has(key);
       });
       
@@ -757,83 +808,63 @@ export default function MasterData({ user, userRole }) {
         skipped: prev.skipped + alreadyExists
       }));
       
-      // Insert one by one to avoid timeout issues
-      for (let i = 0; i < toInsert.length; i++) {
-        const item = toInsert[i];
-        
-        try {
-          // Retry with exponential backoff
-          await retryWithBackoff(async () => {
-            if (entityName === 'Product') {
-              await api.createProduct(item);
-            } else if (entityName === 'KecamatanSAP') {
-              await api.createSapKecamatan(item);
-            } else if (entityName === 'KecamatanJNT') {
-              await api.createJntKecamatan(item);
+      // Batch insert in parallel chunks of 15 to avoid individual sequential delay
+      const BATCH_SIZE = 15;
+      for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+        const chunk = toInsert.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          chunk.map(async (item, chunkIdx) => {
+            const idxInToInsert = i + chunkIdx;
+            try {
+              await retryWithBackoff(async () => {
+                if (entityName === 'Product') {
+                  await api.createProduct(item);
+                } else if (entityName === 'KecamatanSAP') {
+                  await api.createSapKecamatan(item);
+                } else if (entityName === 'KecamatanJNT') {
+                  await api.createJntKecamatan(item);
+                }
+              }, 2, 500);
+
+              inserted++;
+            } catch (error) {
+              console.error(`Row ${idxInToInsert + 1} failed:`, error);
+              failed++;
+              errors.push({ 
+                row: idxInToInsert + 2, 
+                reason: error.message, 
+                data: item 
+              });
             }
-          }, 3, 1000);
-          
-          inserted++;
-          setUploadProgress(prev => ({ 
-            ...prev,
-            current: i + 1, 
-            inserted
-          }));
-        } catch (error) {
-          console.error(`Row ${i + 1} failed:`, error);
-          failed++;
-          errors.push({ 
-            row: i + 2, 
-            reason: error.message, 
-            data: item 
-          });
-          setUploadProgress(prev => ({ 
-            ...prev,
-            failed,
-            errors
-          }));
-        }
-        
-        // Small delay between inserts (every 10 records)
-        if ((i + 1) % 10 === 0 && i < toInsert.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+          })
+        );
+
+        setUploadProgress(prev => ({ 
+          ...prev,
+          current: Math.min(i + BATCH_SIZE, toInsert.length), 
+          inserted,
+          failed,
+          errors
+        }));
       }
 
       queryClient.invalidateQueries(['products', 'kecamatanSAP', 'kecamatanJNT']);
-      
-      // Save to audit log
-      const auditStatus = failed > 0 ? 'PARTIAL' : 'SUCCESS';
-      try {
-        // Audit logs are no longer recorded on client side directly
-        // The backend should record them if needed
-      } catch (auditError) {
-        console.error('Failed to save audit log:', auditError);
-      }
       
       const summary = `
 ✅ Import Selesai!
 ━━━━━━━━━━━━━━━━
 📊 Total Baris: ${rawData.length}
 ✓ Berhasil: ${inserted}
-⚠ Dilewati: ${duplicates.length + invalidRows.length + alreadyExists}
+⚠ Dilewati: ${duplicates.length + invalidRows.length + alreadyExists} (${alreadyExists} sudah ada di DB, ${duplicates.length} duplikat di file, ${invalidRows.length} kolom tidak cocok)
 ✗ Gagal: ${failed}
 
-${failed > 0 ? '⚠ Ada error, klik "Download Error Log" untuk detail' : ''}
+${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Klik "Download Error Log" untuk detail.' : ''}
       `;
       
       alert(summary);
       
     } catch (error) {
       console.error('Error uploading:', error);
-      
-      // Save failed audit log
-      try {
-        // Audit logs are no longer recorded on client side directly
-      } catch (auditError) {
-        console.error('Failed to save audit log:', auditError);
-      }
-      
       alert('❌ Error upload file: ' + error.message);
     } finally {
       setUploading(null);
