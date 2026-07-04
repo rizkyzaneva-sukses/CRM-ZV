@@ -848,7 +848,9 @@ export default function MasterData({ user, userRole }) {
         }));
       }
 
-      queryClient.invalidateQueries(['products', 'kecamatanSAP', 'kecamatanJNT']);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['kecamatanSAP'] });
+      queryClient.invalidateQueries({ queryKey: ['kecamatanJNT'] });
       
       const summary = `
 ✅ Import Selesai!
@@ -964,7 +966,9 @@ ${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Kl
         console.error('Failed to save audit log:', auditError);
       }
       
-      queryClient.invalidateQueries(['products', 'kecamatanSAP', 'kecamatanJNT']);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['kecamatanSAP'] });
+      queryClient.invalidateQueries({ queryKey: ['kecamatanJNT'] });
       alert(`✅ Selesai!\nDihapus: ${deleted}\nDilewati: ${skipped}`);
       
     } catch (error) {
@@ -982,7 +986,13 @@ ${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Kl
       if (entityName === 'KecamatanJNT') await api.deleteJntKecamatan(id);
     },
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries([variables.entityName.toLowerCase()]);
+      const keyMap = {
+        Product: 'products',
+        KecamatanSAP: 'kecamatanSAP',
+        KecamatanJNT: 'kecamatanJNT'
+      };
+      const key = keyMap[variables.entityName] || variables.entityName;
+      queryClient.invalidateQueries({ queryKey: [key] });
     }
   });
 
