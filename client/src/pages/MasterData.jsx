@@ -479,7 +479,10 @@ export default function MasterData({ user, userRole }) {
       }
       // Set new timeout for this specific key
       debounceTimers.current[key] = setTimeout(() => {
-        setSearchTerms(prev => ({ ...prev, [key]: searchInputs[key] }));
+        setSearchTerms(prev => {
+          if (prev[key] === searchInputs[key]) return prev;
+          return { ...prev, [key]: searchInputs[key] };
+        });
       }, 300);
     });
 
@@ -538,41 +541,29 @@ export default function MasterData({ user, userRole }) {
   const jntTotalPages = Math.ceil(jntTotal / PAGE_SIZE);
 
   // Debounce search handlers
-  const handleProductSearch = React.useCallback(
-    React.useMemo(() => {
-      let timer;
-      return (val) => {
-        setProductSearchInput(val);
-        clearTimeout(timer);
-        timer = setTimeout(() => { setProductSearch(val); setProductPage(1); }, 400);
-      };
-    }, []),
-    []
-  );
+  const productSearchTimer = React.useRef(null);
+  const handleProductSearch = React.useCallback((val) => {
+    setProductSearchInput(val);
+    clearTimeout(productSearchTimer.current);
+    productSearchTimer.current = setTimeout(() => { setProductSearch(val); setProductPage(1); }, 400);
+  }, []);
 
-  const handleSapSearch = React.useCallback(
-    React.useMemo(() => {
-      let timer;
-      return (val) => {
-        setSapSearchInput(val);
-        clearTimeout(timer);
-        timer = setTimeout(() => { setSapSearch(val); setSapPage(1); }, 400);
-      };
-    }, []),
-    []
-  );
+  const sapSearchTimer = React.useRef(null);
+  const handleSapSearch = React.useCallback((val) => {
+    setSapSearchInput(val);
+    clearTimeout(sapSearchTimer.current);
+    sapSearchTimer.current = setTimeout(() => { setSapSearch(val); setSapPage(1); }, 400);
+  }, []);
 
-  const handleJntSearch = React.useCallback(
-    React.useMemo(() => {
-      let timer;
-      return (val) => {
-        setJntSearchInput(val);
-        clearTimeout(timer);
-        timer = setTimeout(() => { setJntSearch(val); setJntPage(1); }, 400);
-      };
-    }, []),
-    []
-  );
+  const jntSearchTimer = React.useRef(null);
+  const handleJntSearch = React.useCallback((val) => {
+    setJntSearchInput(val);
+    clearTimeout(jntSearchTimer.current);
+    jntSearchTimer.current = setTimeout(() => { setJntSearch(val); setJntPage(1); }, 400);
+  }, []);
+
+  const sapColumns = React.useMemo(() => ['Kode', 'Kecamatan', 'Kota_Kab', 'Provinsi', 'Status_Tercover'], []);
+  const jntColumns = React.useMemo(() => ['Provinsi', 'Kota_Kab', 'Kecamatan'], []);
 
 
   // Retry with exponential backoff
@@ -1310,7 +1301,7 @@ ${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Kl
             entityName="KecamatanSAP"
             data={kecamatanSAP}
             icon={MapPin}
-            columns={['Kode', 'Kecamatan', 'Kota_Kab', 'Provinsi', 'Status_Tercover']}
+            columns={sapColumns}
             searchKey="sap"
             searchInputs={searchInputs}
             searchTerms={searchTerms}
@@ -1363,7 +1354,7 @@ ${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Kl
             entityName="KecamatanJNT"
             data={kecamatanJNT}
             icon={MapPin}
-            columns={['Provinsi', 'Kota_Kab', 'Kecamatan']}
+            columns={jntColumns}
             searchKey="jnt"
             searchInputs={searchInputs}
             searchTerms={searchTerms}
