@@ -670,175 +670,18 @@ export default function MasterData({ user, userRole }) {
       inserted: 0,
       skipped: 0,
       failed: 0,
-      errors: []
-    });
+    setUploadProgress({ current: 0, total: 100, inserted: 0, skipped: 0, failed: 0, errors: [] });
     
     try {
-      // Read Excel file (client-side parsing)
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawData = XLSX.utils.sheet_to_json(worksheet);
+      let endpoint = '';
+      if (entityName === 'Product') endpoint = 'products';
+      else if (entityName === 'KecamatanSAP') endpoint = 'kecamatan-sap';
+      else if (entityName === 'KecamatanJNT') endpoint = 'kecamatan-jnt';
 
-      if (rawData.length === 0) {
-        alert('File kosong atau format tidak sesuai');
-        return;
-      }
+      if (!endpoint) throw new Error("Tipe data tidak valid");
 
-      const detectedHeaders = rawData[0] ? Object.keys(rawData[0]).join(', ') : 'Tidak ada';
-
-      // Transform data based on entity
-      let transformedData = [];
-      let invalidRows = [];
+      const result = await api.uploadFile(endpoint, file);
       
-      if (entityName === 'Product') {
-        rawData.forEach((row, idx) => {
-          const sku = getFlexibleValue(row, 'sku');
-          const nama_produk = getFlexibleValue(row, 'nama_produk');
-          const hargaRaw = getFlexibleValue(row, 'harga');
-          const harga = parseFloat(hargaRaw) || 0;
-          const brand = getFlexibleValue(row, 'brand');
-
-          const item = { sku, nama_produk, harga, brand };
-
-          if (item.nama_produk) {
-            transformedData.push(item);
-          } else {
-            invalidRows.push({ row: idx + 2, reason: `Nama produk tidak ditemukan. Header di file: "${detectedHeaders}"`, data: row });
-          }
-        });
-      } else if (entityName === 'KecamatanSAP') {
-        rawData.forEach((row, idx) => {
-          const kode = getFlexibleValue(row, 'kode');
-          const kecamatan = getFlexibleValue(row, 'kecamatan');
-          const kota_kab = getFlexibleValue(row, 'kota_kab');
-          const provinsi = getFlexibleValue(row, 'provinsi');
-          const status_tercover = getFlexibleValue(row, 'status_tercover') || 'Ya';
-
-          const item = { kode, kecamatan, kota_kab, provinsi, status_tercover };
-
-          if (item.kecamatan && item.provinsi) {
-            transformedData.push(item);
-          } else {
-            invalidRows.push({ row: idx + 2, reason: `Data tidak lengkap. Header di file: "${detectedHeaders}"`, data: row });
-          }
-        });
-      } else if (entityName === 'KecamatanJNT') {
-        rawData.forEach((row, idx) => {
-          const kode = getFlexibleValue(row, 'kode');
-          const kecamatan = getFlexibleValue(row, 'kecamatan');
-          const kota_kab = getFlexibleValue(row, 'kota_kab');
-          const provinsi = getFlexibleValue(row, 'provinsi');
-
-          const item = { kode, kecamatan, kota_kab, provinsi };
-
-          if (item.kecamatan && item.provinsi) {
-            transformedData.push(item);
-          } else {
-            invalidRows.push({ row: idx + 2, reason: `Data tidak lengkap. Header di file: "${detectedHeaders}"`, data: row });
-          }
-        });
-      }
-
-      if (transformedData.length === 0) {
-        alert(`Tidak ada data valid yang bisa dibaca.\nKolom yang terdeteksi di file Anda: "${detectedHeaders}"\n\nPastikan ada kolom Nama Produk / SKU.`);
-        return;
-      }
-
-      // Remove duplicates within file
-      const { unique, duplicates } = removeDuplicates(transformedData, entityName);
-      
-      let inserted = 0;
-      let failed = 0;
-      const errors = [...invalidRows, ...duplicates.map(d => ({ 
-        row: d._rowNumber, 
-        reason: 'Duplikat dalam file', 
-        data: d 
-      }))];
-
-      setUploadProgress({ 
-        current: 0, 
-        total: unique.length,
-        inserted: 0,
-        skipped: duplicates.length + invalidRows.length,
-        failed: 0,
-        errors
-      });
-
-      // Check existing data to avoid duplicates on re-upload
-      let existingData = [];
-      if (entityName === 'Product') {
-        const res = await api.getProducts({ limit: 50000 });
-        existingData = res.products || [];
-      } else if (entityName === 'KecamatanSAP') {
-        const res = await api.getSapKecamatans({ limit: 50000 });
-        existingData = res.data || [];
-      } else if (entityName === 'KecamatanJNT') {
-        const res = await api.getJntKecamatans({ limit: 50000 });
-        existingData = res.data || [];
-      }
-      
-      const existingKeys = new Set();
-      existingData.forEach(item => {
-        const key = getItemKey(item, entityName);
-        if (key) existingKeys.add(key);
-      });
-      
-      // Filter out items that already exist in database
-      const toInsert = unique.filter(item => {
-        const key = getItemKey(item, entityName);
-        if (!key) return true;
-        return !existingKeys.has(key);
-      });
-      
-      const alreadyExists = unique.length - toInsert.length;
-      
-      setUploadProgress(prev => ({ 
-        ...prev,
-        total: toInsert.length,
-        skipped: prev.skipped + alreadyExists
-      }));
-      
-      // Batch insert in parallel chunks of 15 to avoid individual sequential delay
-      const BATCH_SIZE = 15;
-      for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
-        const chunk = toInsert.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          chunk.map(async (item, chunkIdx) => {
-            const idxInToInsert = i + chunkIdx;
-            try {
-              await retryWithBackoff(async () => {
-                if (entityName === 'Product') {
-                  await api.createProduct(item);
-                } else if (entityName === 'KecamatanSAP') {
-                  await api.createSapKecamatan(item);
-                } else if (entityName === 'KecamatanJNT') {
-                  await api.createJntKecamatan(item);
-                }
-              }, 2, 500);
-
-              inserted++;
-            } catch (error) {
-              console.error(`Row ${idxInToInsert + 1} failed:`, error);
-              failed++;
-              errors.push({ 
-                row: idxInToInsert + 2, 
-                reason: error.message, 
-                data: item 
-              });
-            }
-          })
-        );
-
-        setUploadProgress(prev => ({ 
-          ...prev,
-          current: Math.min(i + BATCH_SIZE, toInsert.length), 
-          inserted,
-          failed,
-          errors
-        }));
-      }
-
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['kecamatanSAP'] });
       queryClient.invalidateQueries({ queryKey: ['kecamatanJNT'] });
@@ -846,14 +689,11 @@ export default function MasterData({ user, userRole }) {
       const summary = `
 ✅ Import Selesai!
 ━━━━━━━━━━━━━━━━
-📊 Total Baris: ${rawData.length}
-✓ Berhasil: ${inserted}
-⚠ Dilewati: ${duplicates.length + invalidRows.length + alreadyExists} (${alreadyExists} sudah ada di DB, ${duplicates.length} duplikat di file, ${invalidRows.length} kolom tidak cocok)
-✗ Gagal: ${failed}
-
-${(failed > 0 || invalidRows.length > 0) ? '⚠ Ada data yang dilewati/gagal. Klik "Download Error Log" untuk detail.' : ''}
+📊 Total Baris: ${result.total || 0}
+✓ Berhasil: ${result.success || 0}
+⚠ Dilewati: ${result.skipped || 0}
+✗ Gagal: ${result.failed || 0}
       `;
-      
       alert(summary);
       
     } catch (error) {
