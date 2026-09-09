@@ -99,7 +99,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { items, ...orderData } = req.body;
-    const orderNumber = generateOrderNumber();
+    const orderNumber = await generateOrderNumber();
 
     const status = orderData.jenis_transaksi === 'CASH' ? 'WAITING_FINANCE' : 'READY_TO_PROCESS';
     const financeStatus = orderData.jenis_transaksi === 'CASH' ? 'PENDING' : null;
@@ -183,11 +183,31 @@ router.put('/:id', async (req, res) => {
     const penanganan = jenisTransaksi === 'COD' ? Math.round((totalBelanja + ongkir) * 0.03) : 0;
     const total = totalBelanja + ongkir + penanganan;
 
+    // Mengubah jenis transaksi mengubah kewajiban approval Finance.
+    // COD -> CASH: order wajib kembali antre di Finance (kecuali sudah disetujui).
+    // CASH -> COD: kewajiban itu hilang, order boleh langsung diproses.
+    // Order yang sudah REJECTED atau RESI_UPDATED tidak diusik.
+    let statusPesanan = prev.status_pesanan;
+    let financeStatus = prev.finance_status;
+    const transaksiBerubah = jenisTransaksi !== prev.jenis_transaksi;
+    const statusBisaDiubah = !['REJECTED', 'RESI_UPDATED'].includes(prev.status_pesanan);
+
+    if (transaksiBerubah && statusBisaDiubah) {
+      if (jenisTransaksi === 'CASH' && prev.finance_status !== 'APPROVED') {
+        statusPesanan = 'WAITING_FINANCE';
+        financeStatus = 'PENDING';
+      } else if (jenisTransaksi === 'COD' && prev.status_pesanan === 'WAITING_FINANCE') {
+        statusPesanan = 'READY_TO_PROCESS';
+        financeStatus = null;
+      }
+    }
+
     await query(
       `UPDATE orders SET nama_pemesan=$1, alamat=$2, no_telepon=$3, kode_pos=$4, berat_kg=$5,
         jenis_transaksi=$6, instruksi_pengiriman=$7, jasa_pengiriman=$8, provinsi=$9, kota_kab=$10,
         kecamatan=$11, kecamatan_kode=$12, ketentuan=$13, metode_pembayaran=$14, transfer_atas_nama=$15,
-        total_belanja=$16, ongkir=$17, penanganan=$18, total=$19, last_updated_by=$20, updated_at=NOW()
+        total_belanja=$16, ongkir=$17, penanganan=$18, total=$19, last_updated_by=$20,
+        status_pesanan=$22, finance_status=$23, updated_at=NOW()
        WHERE id=$21`,
       [keep(orderData.nama_pemesan, prev.nama_pemesan), keep(orderData.alamat, prev.alamat),
        keep(orderData.no_telepon, prev.no_telepon), keep(orderData.kode_pos, prev.kode_pos),
@@ -199,7 +219,7 @@ router.put('/:id', async (req, res) => {
        keep(orderData.metode_pembayaran, prev.metode_pembayaran),
        keep(orderData.transfer_atas_nama, prev.transfer_atas_nama),
        totalBelanja, ongkir, penanganan, total,
-       req.user.email, req.params.id]
+       req.user.email, req.params.id, statusPesanan, financeStatus]
     );
 
     // Replace items hanya bila items dikirim
@@ -218,7 +238,7 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    await upsertCustomer(orderData);
+    await upsertCustomer(orderData, { isNewOrder: false });
 
     const updated = await query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
     const itemsResult = await query('SELECT * FROM order_items WHERE order_id = $1', [req.params.id]);
@@ -322,16 +342,18 @@ router.post('/bulk-resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (r
   }
 });
 
-async function upsertCustomer(orderData) {
+// isNewOrder=false dipakai saat mengedit order: detail pelanggan tetap disegarkan,
+// tapi total_orders tidak boleh naik lagi - order-nya sudah dihitung waktu dibuat.
+async function upsertCustomer(orderData, { isNewOrder = true } = {}) {
   if (!orderData.no_telepon) return;
   const existing = await query('SELECT id FROM customers WHERE no_telepon = $1', [orderData.no_telepon]);
   if (existing.rows.length > 0) {
     await query(
       `UPDATE customers SET nama=$1, alamat=$2, provinsi=$3, kota_kab=$4, kecamatan=$5,
-        kode_pos=$6, total_orders=total_orders+1, last_order_date=CURRENT_DATE, updated_at=NOW()
+        kode_pos=$6, total_orders=total_orders + $8, last_order_date=CURRENT_DATE, updated_at=NOW()
        WHERE no_telepon=$7`,
       [orderData.nama_pemesan, orderData.alamat, orderData.provinsi, orderData.kota_kab,
-       orderData.kecamatan, orderData.kode_pos, orderData.no_telepon]
+       orderData.kecamatan, orderData.kode_pos, orderData.no_telepon, isNewOrder ? 1 : 0]
     );
   } else {
     await query(

@@ -1,9 +1,22 @@
-const { format } = require('date-fns');
+const { query } = require('./db');
 
-function generateOrderNumber() {
-  const date = format(new Date(), 'yyyyMMdd');
-  const random = Math.floor(1000 + Math.random() * 9000);
-  return `CRM-${date}-${random}`;
+// Nomor order diambil dari counter harian di database, bukan angka acak.
+// Versi lama memakai 4 digit random (9.000 kemungkinan per hari): pada ~100 order
+// sehari peluang tabrakan sudah puluhan persen, dan order_number itu UNIQUE.
+// Loop retry hanya untuk melewati nomor lama hasil generator acak yang kebetulan sama.
+async function generateOrderNumber() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const counter = await query(
+      `INSERT INTO order_number_counters (day, last_seq) VALUES (CURRENT_DATE, 1)
+       ON CONFLICT (day) DO UPDATE SET last_seq = order_number_counters.last_seq + 1
+       RETURNING last_seq, to_char(day, 'YYYYMMDD') AS day_str`
+    );
+    const { last_seq, day_str } = counter.rows[0];
+    const candidate = `CRM-${day_str}-${String(last_seq).padStart(4, '0')}`;
+    const clash = await query('SELECT 1 FROM orders WHERE order_number = $1', [candidate]);
+    if (clash.rows.length === 0) return candidate;
+  }
+  throw new Error('Gagal membuat nomor order yang unik');
 }
 
 function normalizeShippingService(serviceName) {

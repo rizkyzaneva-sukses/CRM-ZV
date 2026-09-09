@@ -4,6 +4,7 @@ const XLSX = require('xlsx');
 const { query } = require('../utils/db');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 const { createAuditLog } = require('./auditLogs');
+const { generateOrderNumber } = require('../utils/helpers');
 const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -27,9 +28,13 @@ router.post('/products', requireRole('OWNER', 'FINANCE'), upload.single('file'),
         const harga = row.harga || row['Harga'] || row.price;
         if (!nama || !harga) { skipped++; continue; }
 
+        // SKU kosong disimpan NULL, bukan '': kolomnya UNIQUE, dan '' hanya boleh
+        // muncul sekali sehingga seluruh baris tanpa SKU akan gagal setelah yang pertama.
+        const sku = String(row.sku || row['SKU'] || '').trim() || null;
         await query(
-          'INSERT INTO products (sku, nama_produk, harga, brand) VALUES ($1,$2,$3,$4)',
-          [row.sku || row['SKU'] || '', nama, parseFloat(harga), row.brand || row['Brand'] || '']
+          `INSERT INTO products (sku, nama_produk, harga, brand) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (sku) DO UPDATE SET nama_produk=$2, harga=$3, brand=$4, updated_at=NOW()`,
+          [sku, nama, parseFloat(harga), row.brand || row['Brand'] || '']
         );
         success++;
       } catch (e) {
@@ -99,9 +104,11 @@ router.post('/kecamatan-jnt', requireRole('OWNER', 'FINANCE'), upload.single('fi
         const provinsi = row.provinsi || row['Provinsi'];
         if (!kecamatan || !kota || !provinsi) { skipped++; continue; }
 
+        const kode = String(row.kode || row['Kode'] || '').trim() || null;
         await query(
-          'INSERT INTO kecamatan_jnt (kode, kecamatan, kota_kab, provinsi) VALUES ($1,$2,$3,$4)',
-          [row.kode || row['Kode'] || '', kecamatan, kota, provinsi]
+          `INSERT INTO kecamatan_jnt (kode, kecamatan, kota_kab, provinsi) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (kode) DO UPDATE SET kecamatan=$2, kota_kab=$3, provinsi=$4`,
+          [kode, kecamatan, kota, provinsi]
         );
         success++;
       } catch (e) { failed++; }
@@ -131,9 +138,7 @@ router.post('/orders', requireRole('OWNER', 'FINANCE'), upload.single('file'), a
         const telp = row.no_telepon || row['No Telepon'] || row.phone;
         if (!name || !alamat || !telp) { failed++; continue; }
 
-        const date = require('date-fns').format(new Date(), 'yyyyMMdd');
-        const random = Math.floor(1000 + Math.random() * 9000);
-        const orderNumber = `CRM-${date}-${random}`;
+        const orderNumber = await generateOrderNumber();
 
         await query(
           `INSERT INTO orders (order_number, nama_pemesan, alamat, no_telepon, kode_pos, jenis_transaksi,
@@ -177,24 +182,41 @@ router.post('/resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), upload.single
       const penerima = row.penerima || row['Penerima'] || row.recipient || row.name;
       if (!noWaybill || !penerima) continue;
 
+      const recordException = async (reason) => {
+        unmatched.push({ no_waybill: noWaybill, penerima, reason });
+        await query(
+          'INSERT INTO resi_import_exceptions (no_waybill, penerima, reason) VALUES ($1,$2,$3)',
+          [noWaybill, penerima, reason]
+        );
+      };
+
+      // Nomor resi yang sudah menempel di order lain tidak boleh dipakai ulang.
+      const waybillTaken = await query('SELECT order_number FROM orders WHERE no_resi = $1', [noWaybill]);
+      if (waybillTaken.rows.length > 0) {
+        await recordException(`No resi sudah dipakai order ${waybillTaken.rows[0].order_number}`);
+        continue;
+      }
+
       const orders = await query(
         `SELECT * FROM orders WHERE LOWER(TRIM(nama_pemesan)) = LOWER(TRIM($1)) AND (no_resi IS NULL OR no_resi = '') ORDER BY created_at DESC`,
         [penerima]
       );
 
-      if (orders.rows.length > 0) {
+      if (orders.rows.length === 0) {
+        await recordException('No matching order found');
+      } else if (orders.rows.length > 1) {
+        // Pencocokan hanya berdasarkan nama. Kalau ada lebih dari satu kandidat,
+        // menebak yang terbaru berisiko menempelkan resi ke order orang lain.
+        await recordException(
+          `Nama penerima cocok dengan ${orders.rows.length} order (${orders.rows.map(o => o.order_number).join(', ')}) - perlu verifikasi manual`
+        );
+      } else {
         const order = orders.rows[0];
         await query(
           `UPDATE orders SET no_resi=$1, status_pesanan='RESI_UPDATED', last_updated_by=$2, updated_at=NOW() WHERE id=$3`,
           [noWaybill, req.user.email, order.id]
         );
         matched.push({ order_id: order.id, no_waybill: noWaybill, nama: penerima });
-      } else {
-        unmatched.push({ no_waybill: noWaybill, penerima, reason: 'No matching order found' });
-        await query(
-          'INSERT INTO resi_import_exceptions (no_waybill, penerima, reason) VALUES ($1,$2,$3)',
-          [noWaybill, penerima, 'No matching order found']
-        );
       }
     }
 

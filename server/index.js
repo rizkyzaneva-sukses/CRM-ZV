@@ -5,6 +5,7 @@ const path = require('path');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const { pool } = require('./utils/db');
+const { seedShippingServices } = require('./utils/seedDefaults');
 
 const app = express();
 
@@ -151,6 +152,10 @@ async function autoSeed() {
       printed_by VARCHAR(255),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `CREATE TABLE IF NOT EXISTS order_number_counters (
+      day DATE PRIMARY KEY,
+      last_seq INTEGER NOT NULL DEFAULT 0
+    )`,
     `CREATE TABLE IF NOT EXISTS resi_import_exceptions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       no_waybill VARCHAR(100) NOT NULL,
@@ -180,30 +185,7 @@ async function autoSeed() {
     console.log('✅ Database tables initialized');
 
     // Seed default shipping services
-    const shippingData = [
-      ['SAP Express', 'sap', 'Marketplace'],
-      ['J&T Express', 'jnt', 'Marketplace'],
-      ['JNE', 'jne', 'Marketplace'],
-      ['SiCepat', 'sicepat', 'Marketplace'],
-      ['AnterAja', 'anteraja', 'Marketplace'],
-      ['Ninja Express', 'ninja', 'Marketplace'],
-      ['ID Express', 'idexpress', 'Marketplace'],
-      ['Lion Parcel', 'lion', 'Marketplace'],
-      ['Wahana', 'wahana', 'Marketplace'],
-      ['TIKI', 'tiki', 'Marketplace'],
-      ['Pos Indonesia', 'pos', 'Marketplace'],
-      ['Shopee Express', 'shopee', 'Shopee'],
-      ['Grab Express', 'grab', 'Grab'],
-      ['GoSend', 'gojek', 'Gojek'],
-    ];
-    for (const [name, code, platform] of shippingData) {
-      try {
-        await pool.query(
-          'INSERT INTO shipping_services (name, code, platform) VALUES ($1,$2,$3) ON CONFLICT (code) DO NOTHING',
-          [name, code, platform]
-        );
-      } catch(e) { /* skip */ }
-    }
+    await seedShippingServices();
     console.log('✅ Default shipping services seeded');
 
     // Seed admin user if empty
@@ -249,7 +231,9 @@ function sessionSecret() {
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+// Harus >= batas file di /api/import/preview (50MB): preview mengembalikan seluruh
+// isi file ke client, lalu client mem-POST-nya kembali ke /api/import/confirm.
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
   secret: sessionSecret(),

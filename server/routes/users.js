@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { query } = require('../utils/db');
 const { authMiddleware, requireRole } = require('../middleware/auth');
+const { seedShippingServices } = require('../utils/seedDefaults');
 const router = express.Router();
 
 router.use(authMiddleware);
@@ -72,7 +73,16 @@ router.post('/reset-all-data', requireRole('OWNER'), async (req, res) => {
     await query('DELETE FROM shipping_services');
     await query('DELETE FROM kecamatan_sap');
     await query('DELETE FROM kecamatan_jnt');
-    res.json({ success: true, message: 'All data deleted successfully (Factory Reset)' });
+    await query('DELETE FROM order_number_counters');
+
+    // Factory reset = kembali ke kondisi pabrik, bukan tabel kosong. Tanpa ini
+    // master jasa pengiriman baru terisi lagi saat server di-restart.
+    const restored = await seedShippingServices();
+
+    res.json({
+      success: true,
+      message: `All data deleted successfully (Factory Reset). ${restored} jasa pengiriman bawaan dipulihkan.`
+    });
   } catch (err) {
     res.status(500).json({ error: 'Reset failed' });
   }
