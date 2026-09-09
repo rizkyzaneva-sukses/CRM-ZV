@@ -281,14 +281,20 @@ router.post('/confirm', requireRole('OWNER'), async (req, res) => {
         if (item._isDuplicate) { results.ShippingService.skipped++; results.ShippingService.skippedItems.push({ ...item, _skipReason: 'Data duplikat di file/DB' }); continue; }
         await client.query('SAVEPOINT sp_ss');
         try {
-          await client.query(
+          const inserted = await client.query(
             `INSERT INTO shipping_services (id, name, code, platform, brand, is_active)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (code) DO NOTHING`,
             [item._newId || uuidv4(), item.name || '', item.code || '',
              item.platform || '', item.brand || 'ZANEVA', item.is_active !== false]
           );
-          results.ShippingService.success++;
+          // DO NOTHING artinya baris sudah ada - itu skipped, bukan success.
+          if (inserted.rowCount > 0) {
+            results.ShippingService.success++;
+          } else {
+            results.ShippingService.skipped++;
+            results.ShippingService.skippedItems.push({ ...item, _skipReason: 'Kode jasa kirim sudah ada di DB' });
+          }
           await client.query('RELEASE SAVEPOINT sp_ss');
         } catch (e) {
           await client.query('ROLLBACK TO SAVEPOINT sp_ss');
@@ -306,14 +312,19 @@ router.post('/confirm', requireRole('OWNER'), async (req, res) => {
         if (!item.kode) { results.KecamatanSAP.skipped++; results.KecamatanSAP.skippedItems.push({ ...item, _skipReason: 'Kode tidak valid/kosong' }); continue; } // skip null kode
         await client.query('SAVEPOINT sp_sap');
         try {
-          await client.query(
+          const inserted = await client.query(
             `INSERT INTO kecamatan_sap (id, kode, kecamatan, kota_kab, provinsi, status_tercover)
              VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (kode) DO NOTHING`,
             [item._newId || uuidv4(), item.kode, item.kecamatan || '',
              item.kota_kab || '', item.provinsi || '', item.status_tercover || 'Ya']
           );
-          results.KecamatanSAP.success++;
+          if (inserted.rowCount > 0) {
+            results.KecamatanSAP.success++;
+          } else {
+            results.KecamatanSAP.skipped++;
+            results.KecamatanSAP.skippedItems.push({ ...item, _skipReason: 'Kode kecamatan sudah ada di DB' });
+          }
           await client.query('RELEASE SAVEPOINT sp_sap');
         } catch (e) {
           await client.query('ROLLBACK TO SAVEPOINT sp_sap');

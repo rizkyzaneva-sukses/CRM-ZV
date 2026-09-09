@@ -2,7 +2,12 @@ version: "3.8"
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        # Dibaca saat `vite build`; tanpa ini client memakai placeholder
+        # 'dummy_client_id_for_now' dan tombol Google tidak berfungsi.
+        - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "3000:3000"
     environment:
@@ -13,6 +18,9 @@ services:
       # kalau kosong server sengaja gagal start di NODE_ENV=production.
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET wajib di-set}
       - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET wajib di-set}
+      # Kosong = fitur Login Google mati; server tetap jalan dengan login email/password.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
     depends_on:
       db:
         condition: service_healthy

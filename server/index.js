@@ -230,7 +230,22 @@ function sessionSecret() {
 }
 
 // Middleware
-app.use(cors({ origin: true, credentials: true }));
+// Frontend disajikan dari server ini juga, jadi normalnya semua request same-origin.
+// CORS_ORIGIN (dipisah koma) dipakai kalau client dideploy di domain terpisah.
+// Sebelumnya `origin: true` memantulkan origin apa pun sambil mengirim credentials.
+const corsAllowlist = (process.env.CORS_ORIGIN || '')
+  .split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+  credentials: true,
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);                    // same-origin / curl
+    if (corsAllowlist.includes(origin)) return callback(null, true);
+    if (corsAllowlist.length === 0 && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);                               // dev: bebas
+    }
+    return callback(null, false);
+  },
+}));
 // Harus >= batas file di /api/import/preview (50MB): preview mengembalikan seluruh
 // isi file ke client, lalu client mem-POST-nya kembali ke /api/import/confirm.
 app.use(express.json({ limit: '50mb' }));
@@ -263,6 +278,12 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/print-logs', require('./routes/printLogs'));
 app.use('/api/exceptions', require('./routes/exceptions'));
 
+// Endpoint /api yang tidak dikenal harus balas JSON 404, bukan index.html.
+// Tanpa ini SPA fallback menelannya dan client menerima HTML saat mengharap JSON.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Endpoint tidak ditemukan: ' + req.method + ' /api' + req.path });
+});
+
 // SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -274,9 +295,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Auto-seed on startup
-autoSeed().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`CRM Server running on port ${PORT}`);
+// Hanya boot (seed + listen) kalau file ini dijalankan langsung.
+// Saat di-require dari test, cukup ekspor app-nya supaya supertest bisa memakainya
+// tanpa menyentuh database atau membuka port.
+if (require.main === module) {
+  autoSeed().then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`CRM Server running on port ${PORT}`);
+    });
   });
-});
+}
+
+module.exports = { app, autoSeed };

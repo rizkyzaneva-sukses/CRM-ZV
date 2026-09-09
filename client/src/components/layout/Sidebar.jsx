@@ -46,6 +46,7 @@ const commonMenuItems = [
 
 const adminMenuItems = [
   { name: 'User Management', icon: Users, page: 'UserManagement' },
+  { name: 'Import Data', icon: Database, page: 'ImportData' },
 ];
 
 export default function Sidebar({ currentPage, customRole }) {
@@ -68,6 +69,10 @@ export default function Sidebar({ currentPage, customRole }) {
     allMenuItems = [...menuItems, ...financeMenuItems, ...commonMenuItems];
   } else if (isOwner) {
     allMenuItems = [...menuItems, ...financeMenuItems, ...adminMenuItems, ...commonMenuItems];
+  } else {
+    // Role tak dikenal (mis. custom_role kosong) sebelumnya menghasilkan sidebar
+    // kosong tanpa penjelasan. Beri akses paling minim, bukan layar buntu.
+    allMenuItems = [...staffMenuItems, ...commonMenuItems];
   }
 
   return (

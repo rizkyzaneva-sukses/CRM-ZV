@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -10,26 +9,21 @@ const DefaultFallback = () => (
 );
 
 export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthenticatedElement }) {
-  const { isAuthenticated, isLoadingAuth, authChecked, authError, checkUserAuth } = useAuth();
+  // AuthProvider sudah menjalankan pengecekan sesi sekali saat mount, jadi komponen ini
+  // cukup membaca hasilnya. Versi sebelumnya mengambil `authChecked` dan `checkUserAuth`
+  // yang tidak pernah disediakan context: `!authChecked` selalu true sehingga fallback
+  // tampil selamanya, dan pemanggilan checkUserAuth() melempar TypeError.
+  const { isAuthenticated, isLoadingAuth, authError } = useAuth();
 
-  useEffect(() => {
-    if (!authChecked && !isLoadingAuth) {
-      checkUserAuth();
-    }
-  }, [authChecked, isLoadingAuth, checkUserAuth]);
-
-  if (isLoadingAuth || !authChecked) {
+  if (isLoadingAuth) {
     return fallback;
   }
 
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    }
-    return unauthenticatedElement;
+  if (authError?.type === 'user_not_registered') {
+    return <UserNotRegisteredError />;
   }
 
-  if (!isAuthenticated) {
+  if (authError || !isAuthenticated) {
     return unauthenticatedElement;
   }
 

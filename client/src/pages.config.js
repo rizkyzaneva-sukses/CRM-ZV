@@ -51,6 +51,7 @@ import AuditLog from './pages/AuditLog';
 import CustomerManagement from './pages/CustomerManagement';
 import Dashboard from './pages/Dashboard';
 import ExportCenter from './pages/ExportCenter';
+import ImportData from './pages/ImportData';
 import FinanceApproval from './pages/FinanceApproval';
 import InputOrder from './pages/InputOrder';
 import Inventori from './pages/Inventori';
@@ -58,6 +59,7 @@ import ManualBook from './pages/ManualBook';
 import MasterData from './pages/MasterData';
 import OrderDetail from './pages/OrderDetail';
 import PrintResi from './pages/PrintResi';
+import ResetData from './pages/ResetData';
 import UploadResi from './pages/UploadResi';
 import UserManagement from './pages/UserManagement';
 import __Layout from './Layout.jsx';
@@ -68,6 +70,7 @@ export const PAGES = {
     "CustomerManagement": CustomerManagement,
     "Dashboard": Dashboard,
     "ExportCenter": ExportCenter,
+    "ImportData": ImportData,
     "FinanceApproval": FinanceApproval,
     "InputOrder": InputOrder,
     "Inventori": Inventori,
@@ -75,6 +78,7 @@ export const PAGES = {
     "MasterData": MasterData,
     "OrderDetail": OrderDetail,
     "PrintResi": PrintResi,
+    "ResetData": ResetData,
     "UploadResi": UploadResi,
     "UserManagement": UserManagement,
 }
