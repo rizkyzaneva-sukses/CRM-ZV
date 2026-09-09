@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
 const { query } = require('../utils/db');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireRole } = require('../middleware/auth');
 const { createAuditLog } = require('./auditLogs');
 const router = express.Router();
 
@@ -16,7 +16,7 @@ router.use(authMiddleware);
 // POST /api/import/preview
 // Accept JSON file, parse it, check for duplicates, return preview
 // ============================================================
-router.post('/preview', upload.single('file'), async (req, res) => {
+router.post('/preview', requireRole('OWNER'), upload.single('file'), async (req, res) => {
   try {
     console.log('Import preview: received file', req.file?.originalname, req.file?.size, 'bytes');
     if (!req.file) {
@@ -233,7 +233,7 @@ router.post('/preview', upload.single('file'), async (req, res) => {
 // POST /api/import/confirm
 // Accept confirmed data and import to PostgreSQL
 // ============================================================
-router.post('/confirm', async (req, res) => {
+router.post('/confirm', requireRole('OWNER'), async (req, res) => {
   const client = await require('../utils/db').pool.connect();
   try {
     const { data } = req.body;

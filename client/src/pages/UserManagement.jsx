@@ -52,7 +52,7 @@ export default function UserManagement({ user, customRole }) {
 
   const inviteMutation = useMutation({
     mutationFn: async ({ email, password, customRole }) => {
-      await api.register({ email, password, full_name: email.split('@')[0], custom_role: customRole });
+      await api.createUser({ email, password, full_name: email.split('@')[0], custom_role: customRole });
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['users']);

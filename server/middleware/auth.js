@@ -1,7 +1,19 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../utils/db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'crm-jwt-secret';
+const JWT_SECRET = requireSecret('JWT_SECRET', 'crm-jwt-secret-dev-only');
+
+// Di produksi secret wajib diisi: kalau tidak, token bisa dipalsukan siapa pun
+// yang membaca repo ini. Di dev boleh pakai nilai bawaan, tapi dengan peringatan.
+function requireSecret(name, devFallback) {
+  const value = process.env[name];
+  if (value) return value;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`${name} wajib di-set di environment produksi.`);
+  }
+  console.warn(`⚠️  ${name} belum di-set - memakai nilai dev. JANGAN dipakai di produksi.`);
+  return devFallback;
+}
 
 function generateToken(user) {
   return jwt.sign(

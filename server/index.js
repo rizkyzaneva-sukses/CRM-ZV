@@ -238,12 +238,21 @@ async function autoSeed() {
 
 const PORT = process.env.PORT || 3001;
 
+function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET wajib di-set di environment produksi.');
+  }
+  console.warn('⚠️  SESSION_SECRET belum di-set - memakai nilai dev. JANGAN dipakai di produksi.');
+  return 'crm-session-secret-dev-only';
+}
+
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'crm-session-secret',
+  secret: sessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 24 * 60 * 60 * 1000 }

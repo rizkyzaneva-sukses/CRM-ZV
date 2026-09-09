@@ -9,8 +9,10 @@ services:
       - DATABASE_URL=postgresql://crm_user:crm_password@db:5432/crm_db
       - PORT=3000
       - NODE_ENV=production
-      - JWT_SECRET=${JWT_SECRET:-supersecretjwtkey123}
-      - SESSION_SECRET=${SESSION_SECRET:-supersecretsessionkey123}
+      # Tanpa nilai default: secret wajib disuplai dari environment/.env,
+      # kalau kosong server sengaja gagal start di NODE_ENV=production.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET wajib di-set}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET wajib di-set}
     depends_on:
       db:
         condition: service_healthy

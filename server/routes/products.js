@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../utils/db');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 router.use(authMiddleware);
@@ -31,7 +31,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     const { sku, nama_produk, harga, brand } = req.body;
     const result = await query(
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     const { sku, nama_produk, harga, brand } = req.body;
     const result = await query(
@@ -57,7 +57,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     await query('DELETE FROM products WHERE id = $1', [req.params.id]);
     res.json({ success: true });

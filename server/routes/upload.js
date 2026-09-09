@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { query } = require('../utils/db');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireRole } = require('../middleware/auth');
 const { createAuditLog } = require('./auditLogs');
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 router.use(authMiddleware);
 
 // Upload products Excel
-router.post('/products', upload.single('file'), async (req, res) => {
+router.post('/products', requireRole('OWNER', 'FINANCE'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File required' });
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -52,7 +52,7 @@ router.post('/products', upload.single('file'), async (req, res) => {
 });
 
 // Upload kecamatan SAP
-router.post('/kecamatan-sap', upload.single('file'), async (req, res) => {
+router.post('/kecamatan-sap', requireRole('OWNER', 'FINANCE'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File required' });
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -84,7 +84,7 @@ router.post('/kecamatan-sap', upload.single('file'), async (req, res) => {
 });
 
 // Upload kecamatan JNT
-router.post('/kecamatan-jnt', upload.single('file'), async (req, res) => {
+router.post('/kecamatan-jnt', requireRole('OWNER', 'FINANCE'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File required' });
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -114,7 +114,7 @@ router.post('/kecamatan-jnt', upload.single('file'), async (req, res) => {
 });
 
 // Upload bulk orders from Excel
-router.post('/orders', upload.single('file'), async (req, res) => {
+router.post('/orders', requireRole('OWNER', 'FINANCE'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File required' });
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -162,7 +162,7 @@ router.post('/orders', upload.single('file'), async (req, res) => {
 });
 
 // Upload resi Excel
-router.post('/resi', upload.single('file'), async (req, res) => {
+router.post('/resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File required' });
     const wb = XLSX.read(req.file.buffer, { type: 'buffer' });

@@ -186,6 +186,24 @@ export default function InputOrder({ user, userRole }) {
     return `CRM-${date}-${random}`;
   };
 
+  // Baris pesanan yang dikirim ke backend bersama order (POST/PUT /api/orders).
+  const orderItemsPayload = () => items
+    .filter(item => item.nama_produk)
+    .map(item => ({
+      nama_produk: item.nama_produk,
+      sku: item.sku || item.nama_produk,
+      qty: item.qty || 1,
+      harga_setelah_diskon: item.harga_setelah_diskon || 0,
+      jasa_pengiriman: item.jasa_pengiriman || '',
+      berat_kg: item.berat_kg || 1,
+      provinsi: item.provinsi || '',
+      kota_kab: item.kota_kab || '',
+      kecamatan: item.kecamatan || '',
+      kecamatan_kode: item.kecamatan_kode || '',
+      status_tercover: item.status_tercover || '',
+      instruksi_pengiriman: item.instruksi_pengiriman || '',
+    }));
+
   const createOrderMutation = useMutation({
     mutationFn: async (data) => {
       let order;
@@ -194,46 +212,20 @@ export default function InputOrder({ user, userRole }) {
         // UPDATE MODE
         const orderData = {
           ...data,
+          items: orderItemsPayload(),
           total,
           last_updated_by: user?.email,
         };
-        
+
+        // Backend mengganti seluruh order_items dari field `items`, jadi tidak perlu
+        // hapus/insert manual per baris di sini.
         await api.updateOrder(editOrderId, orderData);
         order = { id: editOrderId };
-
-        // Delete existing items
-        const res = await api.getOrderItems({ order_id: editOrderId });
-        const existingItems = res.order_items || [];
-        await Promise.all(existingItems.map(item => api.deleteOrderItem(item.id)));
-
-        // Create new items
-        for (const item of items) {
-          if (item.nama_produk) {
-            await api.request('/order-items', {
-              method: 'POST',
-              body: JSON.stringify({
-                order_id: editOrderId,
-                nama_produk: item.nama_produk,
-                sku: item.sku || item.nama_produk,
-                qty: item.qty,
-                harga_setelah_diskon: item.harga_setelah_diskon,
-                subtotal_item: (item.qty || 1) * (item.harga_setelah_diskon || 0),
-                jasa_pengiriman: item.jasa_pengiriman || '',
-                berat_kg: item.berat_kg || 1,
-                provinsi: item.provinsi || '',
-                kota_kab: item.kota_kab || '',
-                kecamatan: item.kecamatan || '',
-                kecamatan_kode: item.kecamatan_kode || '',
-                status_tercover: item.status_tercover || '',
-                instruksi_pengiriman: item.instruksi_pengiriman || '',
-              })
-            });
-          }
-        }
       } else {
         // CREATE MODE
         const orderData = {
           ...data,
+          items: orderItemsPayload(),
           order_number: generateOrderNumber(),
           total,
           platform: 'CRM',
@@ -241,33 +233,9 @@ export default function InputOrder({ user, userRole }) {
           finance_status: data.jenis_transaksi === 'CASH' ? 'PENDING' : null,
         };
 
+        // Backend membuat order_items dari field `items` pada request yang sama.
         const created = await api.createOrder(orderData);
         order = created.order || created;
-
-        // Create order items
-        for (const item of items) {
-          if (item.nama_produk) {
-            await api.request('/order-items', {
-              method: 'POST',
-              body: JSON.stringify({
-                order_id: order.id,
-                nama_produk: item.nama_produk,
-                sku: item.sku || item.nama_produk,
-                qty: item.qty,
-                harga_setelah_diskon: item.harga_setelah_diskon,
-                subtotal_item: (item.qty || 1) * (item.harga_setelah_diskon || 0),
-                jasa_pengiriman: item.jasa_pengiriman || '',
-                berat_kg: item.berat_kg || 1,
-                provinsi: item.provinsi || '',
-                kota_kab: item.kota_kab || '',
-                kecamatan: item.kecamatan || '',
-                kecamatan_kode: item.kecamatan_kode || '',
-                status_tercover: item.status_tercover || '',
-                instruksi_pengiriman: item.instruksi_pengiriman || '',
-              })
-            });
-          }
-        }
       }
 
       // Auto create/update customer
@@ -424,30 +392,30 @@ export default function InputOrder({ user, userRole }) {
             throw new Error('Data tidak lengkap (nama/alamat/telepon/jasa pengiriman)');
           }
 
+          // Parse items (assumed format: "Product1:2:10000|Product2:1:5000")
+          orderData.items = String(row['Items'] || '')
+            .split('|')
+            .map(part => {
+              const [nama, qty, harga] = part.split(':');
+              if (!nama || !nama.trim()) return null;
+              return {
+                nama_produk: nama.trim(),
+                sku: nama.trim(),
+                qty: parseInt(qty) || 1,
+                harga_setelah_diskon: parseFloat(harga) || 0,
+                jasa_pengiriman: orderData.jasa_pengiriman,
+                berat_kg: orderData.berat_kg,
+                provinsi: orderData.provinsi,
+                kota_kab: orderData.kota_kab,
+                kecamatan: orderData.kecamatan,
+                kecamatan_kode: orderData.kecamatan_kode,
+                instruksi_pengiriman: orderData.instruksi_pengiriman,
+              };
+            })
+            .filter(Boolean);
+
           const resOrder = await api.createOrder(orderData);
           const order = resOrder.order || resOrder;
-
-          // Parse items (assumed format: "Product1:2:10000|Product2:1:5000")
-          const itemsStr = row['Items'] || '';
-          if (itemsStr) {
-            const itemsParts = itemsStr.split('|');
-            for (const part of itemsParts) {
-              const [nama, qty, harga] = part.split(':');
-              if (nama) {
-                await api.request('/order-items', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    order_id: order.id,
-                    nama_produk: nama.trim(),
-                    sku: nama.trim(),
-                    qty: parseInt(qty) || 1,
-                    harga_setelah_diskon: parseFloat(harga) || 0,
-                    subtotal_item: (parseInt(qty) || 1) * (parseFloat(harga) || 0),
-                  })
-                });
-              }
-            }
-          }
 
           // Auto create/update customer
           try {

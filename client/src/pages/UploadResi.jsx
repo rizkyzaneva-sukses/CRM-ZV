@@ -138,10 +138,9 @@ export default function UploadResi({ user, customRole }) {
       if (!matchResults) return;
 
       for (const item of matchResults.matched) {
-        await api.updateOrder(item.order.id, {
-          no_resi: item.resi.no_waybill,
-          status_pesanan: 'RESI_UPDATED',
-        });
+        // Endpoint khusus resi: hanya mengubah no_resi + status_pesanan.
+        // PUT /orders/:id dipakai untuk edit order lengkap, bukan untuk ini.
+        await api.updateResi(item.order.id, item.resi.no_waybill);
       }
 
       // Save exceptions

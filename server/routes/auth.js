@@ -19,6 +19,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const user = result.rows[0];
+    // Akun yang dibuat lewat Google / seed tidak punya password_hash.
+    // bcrypt.compare(password, null) melempar exception, bukan mengembalikan false.
+    if (!user.password_hash) {
+      return res.status(401).json({ error: 'Akun ini memakai Login Google. Silakan masuk lewat tombol Google.' });
+    }
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -73,21 +78,25 @@ router.post('/google', async (req, res) => {
   }
 });
 
-// Register (first user becomes OWNER)
+// Bootstrap only: mendaftarkan user pertama sebagai OWNER ketika database masih kosong.
+// Setelah ada user, pendaftaran ditutup - akun baru dibuat OWNER lewat POST /api/users.
 router.post('/register', async (req, res) => {
   try {
     const { email, password, full_name } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
+    const userCount = await query('SELECT COUNT(*) FROM users');
+    if (parseInt(userCount.rows[0].count) !== 0) {
+      return res.status(403).json({ error: 'Pendaftaran mandiri ditutup. Silakan hubungi Administrator.' });
+    }
     const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
     const hash = await bcrypt.hash(password, 10);
-    const userCount = await query('SELECT COUNT(*) FROM users');
-    const customRole = parseInt(userCount.rows[0].count) === 0 ? 'OWNER' : 'STAFF';
-    const role = customRole === 'OWNER' ? 'admin' : 'user';
+    const customRole = 'OWNER';
+    const role = 'admin';
 
     const result = await query(
       'INSERT INTO users (email, full_name, password_hash, role, custom_role) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, role, custom_role',

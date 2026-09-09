@@ -664,12 +664,6 @@ export default function MasterData({ user, userRole }) {
 
   const handleUpload = async (entityName, file) => {
     setUploading(entityName);
-    setUploadProgress({ 
-      current: 0, 
-      total: 0, 
-      inserted: 0,
-      skipped: 0,
-      failed: 0,
     setUploadProgress({ current: 0, total: 100, inserted: 0, skipped: 0, failed: 0, errors: [] });
     
     try {

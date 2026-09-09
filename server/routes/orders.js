@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../utils/db');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireRole } = require('../middleware/auth');
 const { generateOrderNumber } = require('../utils/helpers');
 const router = express.Router();
 
@@ -10,6 +10,12 @@ router.use(authMiddleware);
 // dan total_belanja supaya keduanya tidak pernah berbeda.
 function itemSubtotal(item) {
   return (parseInt(item.qty) || 1) * (parseFloat(item.harga_setelah_diskon) || 0);
+}
+
+// STAFF hanya boleh menyentuh order buatannya sendiri. Balas 404 (bukan 403)
+// supaya keberadaan order milik orang lain tidak bocor.
+function staffMayTouch(req, order) {
+  return req.user.custom_role !== 'STAFF' || order.created_by === req.user.email;
 }
 
 // List orders with filters
@@ -76,6 +82,9 @@ router.get('/:id', async (req, res) => {
   try {
     const orderResult = await query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
     if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    if (!staffMayTouch(req, orderResult.rows[0])) {
       return res.status(404).json({ error: 'Order not found' });
     }
     const itemsResult = await query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY created_at', [req.params.id]);
@@ -152,10 +161,26 @@ router.put('/:id', async (req, res) => {
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Order not found' });
     }
+    if (!staffMayTouch(req, existing.rows[0])) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
-    const totalBelanja = (items || []).reduce((sum, item) => sum + itemSubtotal(item), 0);
-    const ongkir = parseFloat(orderData.ongkir) || 0;
-    const penanganan = orderData.jenis_transaksi === 'COD' ? Math.round((totalBelanja + ongkir) * 0.03) : 0;
+    // Update parsial: field yang tidak dikirim mempertahankan nilai lamanya.
+    // Tanpa ini, pemanggil yang hanya mengirim sebagian field akan meng-NULL-kan
+    // kolom NOT NULL seperti nama_pemesan dan membuat UPDATE gagal total.
+    const prev = existing.rows[0];
+    const keep = (value, fallback) => (value === undefined ? fallback : value);
+
+    // Item hanya diganti kalau pemanggil benar-benar mengirim array items.
+    const replaceItems = Array.isArray(items);
+    const effectiveItems = replaceItems
+      ? items
+      : (await query('SELECT * FROM order_items WHERE order_id = $1', [req.params.id])).rows;
+
+    const jenisTransaksi = keep(orderData.jenis_transaksi, prev.jenis_transaksi);
+    const totalBelanja = effectiveItems.reduce((sum, item) => sum + itemSubtotal(item), 0);
+    const ongkir = parseFloat(keep(orderData.ongkir, prev.ongkir)) || 0;
+    const penanganan = jenisTransaksi === 'COD' ? Math.round((totalBelanja + ongkir) * 0.03) : 0;
     const total = totalBelanja + ongkir + penanganan;
 
     await query(
@@ -164,16 +189,22 @@ router.put('/:id', async (req, res) => {
         kecamatan=$11, kecamatan_kode=$12, ketentuan=$13, metode_pembayaran=$14, transfer_atas_nama=$15,
         total_belanja=$16, ongkir=$17, penanganan=$18, total=$19, last_updated_by=$20, updated_at=NOW()
        WHERE id=$21`,
-      [orderData.nama_pemesan, orderData.alamat, orderData.no_telepon, orderData.kode_pos, orderData.berat_kg,
-       orderData.jenis_transaksi, orderData.instruksi_pengiriman, orderData.jasa_pengiriman, orderData.provinsi,
-       orderData.kota_kab, orderData.kecamatan, orderData.kecamatan_kode, orderData.ketentuan,
-       orderData.metode_pembayaran, orderData.transfer_atas_nama, totalBelanja, ongkir, penanganan, total,
+      [keep(orderData.nama_pemesan, prev.nama_pemesan), keep(orderData.alamat, prev.alamat),
+       keep(orderData.no_telepon, prev.no_telepon), keep(orderData.kode_pos, prev.kode_pos),
+       keep(orderData.berat_kg, prev.berat_kg), jenisTransaksi,
+       keep(orderData.instruksi_pengiriman, prev.instruksi_pengiriman),
+       keep(orderData.jasa_pengiriman, prev.jasa_pengiriman), keep(orderData.provinsi, prev.provinsi),
+       keep(orderData.kota_kab, prev.kota_kab), keep(orderData.kecamatan, prev.kecamatan),
+       keep(orderData.kecamatan_kode, prev.kecamatan_kode), keep(orderData.ketentuan, prev.ketentuan),
+       keep(orderData.metode_pembayaran, prev.metode_pembayaran),
+       keep(orderData.transfer_atas_nama, prev.transfer_atas_nama),
+       totalBelanja, ongkir, penanganan, total,
        req.user.email, req.params.id]
     );
 
-    // Replace items
-    await query('DELETE FROM order_items WHERE order_id = $1', [req.params.id]);
-    if (items && items.length > 0) {
+    // Replace items hanya bila items dikirim
+    if (replaceItems) {
+      await query('DELETE FROM order_items WHERE order_id = $1', [req.params.id]);
       for (const item of items) {
         const subtotal = itemSubtotal(item);
         await query(
@@ -199,7 +230,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete order
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     await query('DELETE FROM orders WHERE id = $1', [req.params.id]);
     res.json({ success: true });
@@ -210,7 +241,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Bulk finance action
-router.post('/bulk-finance', async (req, res) => {
+router.post('/bulk-finance', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     const { order_ids, action } = req.body;
     if (!order_ids || !Array.isArray(order_ids)) return res.status(400).json({ error: 'order_ids array required' });
@@ -234,7 +265,7 @@ router.post('/bulk-finance', async (req, res) => {
 });
 
 // Finance approve/reject
-router.post('/:id/finance', async (req, res) => {
+router.post('/:id/finance', requireRole('OWNER', 'FINANCE'), async (req, res) => {
   try {
     const { action } = req.body; // 'approve' or 'reject'
     const order = await query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
@@ -258,7 +289,7 @@ router.post('/:id/finance', async (req, res) => {
 });
 
 // Update resi
-router.post('/:id/resi', async (req, res) => {
+router.post('/:id/resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (req, res) => {
   try {
     const { no_resi } = req.body;
     const result = await query(
@@ -275,7 +306,7 @@ router.post('/:id/resi', async (req, res) => {
 });
 
 // Bulk update resi
-router.post('/bulk-resi', async (req, res) => {
+router.post('/bulk-resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (req, res) => {
   try {
     const { updates } = req.body; // [{ order_id, no_resi }]
     for (const u of updates) {
