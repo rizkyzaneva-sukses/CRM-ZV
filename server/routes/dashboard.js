@@ -5,15 +5,22 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+// STAFF only sees their own orders. Returns a parameterized ` AND created_by = $1`
+// fragment (empty for other roles) so the email never lands in the SQL string.
+function staffScope(req) {
+  if (req.user.custom_role !== 'STAFF') return { clause: '', params: [] };
+  return { clause: ' AND created_by = $1', params: [req.user.email] };
+}
+
 router.get('/stats', async (req, res) => {
   try {
-    const roleFilter = req.user.custom_role === 'STAFF' ? `WHERE created_by = '${req.user.email}'` : '';
+    const { clause: roleClause, params: roleParams } = staffScope(req);
 
-    const totalOrders = await query(`SELECT COUNT(*) as count FROM orders ${roleFilter}`);
-    const totalRevenue = await query(`SELECT COALESCE(SUM(total), 0) as sum FROM orders ${roleFilter} WHERE status_pesanan != 'REJECTED'`);
+    const totalOrders = await query(`SELECT COUNT(*) as count FROM orders WHERE TRUE${roleClause}`, roleParams);
+    const totalRevenue = await query(`SELECT COALESCE(SUM(total), 0) as sum FROM orders WHERE status_pesanan != 'REJECTED'${roleClause}`, roleParams);
     const pendingFinance = await query(`SELECT COUNT(*) as count FROM orders WHERE finance_status = 'PENDING'`);
-    const readyToProcess = await query(`SELECT COUNT(*) as count FROM orders ${roleFilter ? roleFilter + ' AND' : 'WHERE'} status_pesanan = 'READY_TO_PROCESS'`);
-    const resiUpdated = await query(`SELECT COUNT(*) as count FROM orders ${roleFilter ? roleFilter + ' AND' : 'WHERE'} status_pesanan = 'RESI_UPDATED'`);
+    const readyToProcess = await query(`SELECT COUNT(*) as count FROM orders WHERE status_pesanan = 'READY_TO_PROCESS'${roleClause}`, roleParams);
+    const resiUpdated = await query(`SELECT COUNT(*) as count FROM orders WHERE status_pesanan = 'RESI_UPDATED'${roleClause}`, roleParams);
 
     res.json({
       total_orders: parseInt(totalOrders.rows[0].count),
@@ -44,18 +51,18 @@ router.get('/sales-chart', async (req, res) => {
       dateFormat = 'YYYY-MM-DD';
     }
 
-    const roleFilter = req.user.custom_role === 'STAFF' ? `AND created_by = '${req.user.email}'` : '';
+    const { clause: roleClause, params: roleParams } = staffScope(req);
 
     const result = await query(`
       SELECT ${groupBy} as date,
         COUNT(*) as order_count,
         COALESCE(SUM(total), 0) as revenue
       FROM orders
-      WHERE status_pesanan != 'REJECTED' ${roleFilter}
+      WHERE status_pesanan != 'REJECTED'${roleClause}
       GROUP BY ${groupBy}
       ORDER BY date DESC
       LIMIT 30
-    `);
+    `, roleParams);
 
     res.json({ data: result.rows.reverse() });
   } catch (err) {
@@ -66,12 +73,13 @@ router.get('/sales-chart', async (req, res) => {
 
 router.get('/status-distribution', async (req, res) => {
   try {
-    const roleFilter = req.user.custom_role === 'STAFF' ? `WHERE created_by = '${req.user.email}'` : '';
+    const { clause: roleClause, params: roleParams } = staffScope(req);
     const result = await query(`
       SELECT status_pesanan as status, COUNT(*) as count
-      FROM orders ${roleFilter}
+      FROM orders
+      WHERE TRUE${roleClause}
       GROUP BY status_pesanan
-    `);
+    `, roleParams);
     res.json({ data: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch status distribution' });
@@ -80,15 +88,15 @@ router.get('/status-distribution', async (req, res) => {
 
 router.get('/shipping-performance', async (req, res) => {
   try {
-    const roleFilter = req.user.custom_role === 'STAFF' ? `AND created_by = '${req.user.email}'` : '';
+    const { clause: roleClause, params: roleParams } = staffScope(req);
     const result = await query(`
       SELECT jasa_pengiriman as service, COUNT(*) as count,
         COALESCE(SUM(total), 0) as revenue
       FROM orders
-      WHERE status_pesanan != 'REJECTED' ${roleFilter}
+      WHERE status_pesanan != 'REJECTED'${roleClause}
       GROUP BY jasa_pengiriman
       ORDER BY count DESC
-    `);
+    `, roleParams);
     res.json({ data: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch shipping performance' });

@@ -166,7 +166,7 @@ export default function InputOrder({ user, userRole }) {
   // Auto-calculate total_belanja from items
   useEffect(() => {
     const calculatedTotal = items.reduce((sum, item) => {
-      return sum + (item.harga_setelah_diskon || 0);
+      return sum + (item.qty || 1) * (item.harga_setelah_diskon || 0);
     }, 0);
     setForm(prev => ({ ...prev, total_belanja: calculatedTotal }));
   }, [items]);

@@ -6,6 +6,12 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+// Baris pesanan = qty x harga setelah diskon. Dipakai bersama untuk subtotal_item
+// dan total_belanja supaya keduanya tidak pernah berbeda.
+function itemSubtotal(item) {
+  return (parseInt(item.qty) || 1) * (parseFloat(item.harga_setelah_diskon) || 0);
+}
+
 // List orders with filters
 router.get('/', async (req, res) => {
   try {
@@ -90,7 +96,7 @@ router.post('/', async (req, res) => {
     const financeStatus = orderData.jenis_transaksi === 'CASH' ? 'PENDING' : null;
 
     // Calculate totals
-    const totalBelanja = (items || []).reduce((sum, item) => sum + (parseFloat(item.harga_setelah_diskon) || 0), 0);
+    const totalBelanja = (items || []).reduce((sum, item) => sum + itemSubtotal(item), 0);
     const ongkir = parseFloat(orderData.ongkir) || 0;
     const penanganan = orderData.jenis_transaksi === 'COD' ? Math.round((totalBelanja + ongkir) * 0.03) : 0;
     const total = totalBelanja + ongkir + penanganan;
@@ -115,7 +121,7 @@ router.post('/', async (req, res) => {
     // Insert items
     if (items && items.length > 0) {
       for (const item of items) {
-        const subtotal = (parseInt(item.qty) || 1) * (parseFloat(item.harga_setelah_diskon) || 0);
+        const subtotal = itemSubtotal(item);
         await query(
           `INSERT INTO order_items (order_id, sku, nama_produk, qty, harga_setelah_diskon, subtotal_item,
             jasa_pengiriman, berat_kg, provinsi, kota_kab, kecamatan, kecamatan_kode, status_tercover, instruksi_pengiriman)
@@ -147,7 +153,7 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    const totalBelanja = (items || []).reduce((sum, item) => sum + (parseFloat(item.harga_setelah_diskon) || 0), 0);
+    const totalBelanja = (items || []).reduce((sum, item) => sum + itemSubtotal(item), 0);
     const ongkir = parseFloat(orderData.ongkir) || 0;
     const penanganan = orderData.jenis_transaksi === 'COD' ? Math.round((totalBelanja + ongkir) * 0.03) : 0;
     const total = totalBelanja + ongkir + penanganan;
@@ -169,7 +175,7 @@ router.put('/:id', async (req, res) => {
     await query('DELETE FROM order_items WHERE order_id = $1', [req.params.id]);
     if (items && items.length > 0) {
       for (const item of items) {
-        const subtotal = (parseInt(item.qty) || 1) * (parseFloat(item.harga_setelah_diskon) || 0);
+        const subtotal = itemSubtotal(item);
         await query(
           `INSERT INTO order_items (order_id, sku, nama_produk, qty, harga_setelah_diskon, subtotal_item,
             jasa_pengiriman, berat_kg, provinsi, kota_kab, kecamatan, kecamatan_kode, status_tercover, instruksi_pengiriman)
