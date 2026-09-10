@@ -60,6 +60,7 @@ import MasterData from './pages/MasterData';
 import OrderDetail from './pages/OrderDetail';
 import PrintResi from './pages/PrintResi';
 import ResetData from './pages/ResetData';
+import Setting from './pages/Setting';
 import UploadResi from './pages/UploadResi';
 import UserManagement from './pages/UserManagement';
 import __Layout from './Layout.jsx';
@@ -79,6 +80,7 @@ export const PAGES = {
     "OrderDetail": OrderDetail,
     "PrintResi": PrintResi,
     "ResetData": ResetData,
+    "Setting": Setting,
     "UploadResi": UploadResi,
     "UserManagement": UserManagement,
 }

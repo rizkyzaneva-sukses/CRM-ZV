@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BookOpen, Users, Package, Wallet, Archive, Download } from 'lucide-react';
-import DownloadAllData from '@/components/manualbook/DownloadAllData';
-import ImportData from './ImportData';
-import ResetData from './ResetData';
+import { BookOpen, Users, Package, Wallet, Archive } from 'lucide-react';
 
-export default function ManualBook({ user, customRole }) {
+export default function ManualBook() {
   const [activeTab, setActiveTab] = useState('overview');
 
   const roles = [
@@ -110,22 +107,6 @@ export default function ManualBook({ user, customRole }) {
             <Package className="w-4 h-4 mr-2" />
             Features
           </TabsTrigger>
-          <TabsTrigger value="download" className="data-[state=active]:bg-emerald-600">
-            <Download className="w-4 h-4 mr-2" />
-            Download Data
-          </TabsTrigger>
-          {customRole === 'OWNER' && (
-            <>
-              <TabsTrigger value="import" className="data-[state=active]:bg-emerald-600">
-                <Archive className="w-4 h-4 mr-2" />
-                Import Data
-              </TabsTrigger>
-              <TabsTrigger value="reset" className="data-[state=active]:bg-emerald-600">
-                <Users className="w-4 h-4 mr-2" />
-                Factory Reset
-              </TabsTrigger>
-            </>
-          )}
         </TabsList>
 
         {/* Overview Tab */}
@@ -308,25 +289,6 @@ export default function ManualBook({ user, customRole }) {
             </div>
           </Card>
         </TabsContent>
-
-        {/* Download Data Tab */}
-        <TabsContent value="download" className="space-y-4">
-          <DownloadAllData customRole={customRole} />
-        </TabsContent>
-
-        {/* Import Data Tab */}
-        {customRole === 'OWNER' && (
-          <TabsContent value="import" className="space-y-4">
-            <ImportData />
-          </TabsContent>
-        )}
-
-        {/* Reset Data Tab */}
-        {customRole === 'OWNER' && (
-          <TabsContent value="reset" className="space-y-4">
-            <ResetData user={user} customRole={customRole} />
-          </TabsContent>
-        )}
       </Tabs>
 
       <Card className="bg-emerald-500/10 border border-emerald-500/20 p-6">

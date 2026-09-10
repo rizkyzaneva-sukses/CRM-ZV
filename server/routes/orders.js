@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
     const total = parseInt(countResult.rows[0].count);
 
     const result = await query(
-      `SELECT * FROM orders ${whereClause} ORDER BY created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      `SELECT * FROM orders ${whereClause} ORDER BY created_at DESC, id LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       [...params, parseInt(limit), parseInt(offset)]
     );
 
@@ -320,6 +320,10 @@ router.post('/:id/resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (re
     if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
     res.json({ order: result.rows[0] });
   } catch (err) {
+    // 23505 = pelanggaran unique index uniq_orders_no_resi
+    if (err.code === '23505') {
+      return res.status(409).json({ error: `Nomor resi ${req.body.no_resi} sudah dipakai order lain.` });
+    }
     console.error('Update resi error:', err);
     res.status(500).json({ error: 'Failed to update resi' });
   }
@@ -329,13 +333,26 @@ router.post('/:id/resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (re
 router.post('/bulk-resi', requireRole('OWNER', 'FINANCE', 'INVENTORI'), async (req, res) => {
   try {
     const { updates } = req.body; // [{ order_id, no_resi }]
+    // Satu resi yang bentrok tidak boleh menggagalkan seluruh batch: catat mana
+    // yang gagal, lanjutkan sisanya, lalu laporkan keduanya ke pemanggil.
+    let updated = 0;
+    const conflicts = [];
     for (const u of updates) {
-      await query(
-        `UPDATE orders SET no_resi=$1, status_pesanan='RESI_UPDATED', last_updated_by=$2, updated_at=NOW() WHERE id=$3`,
-        [u.no_resi, req.user.email, u.order_id]
-      );
+      try {
+        await query(
+          `UPDATE orders SET no_resi=$1, status_pesanan='RESI_UPDATED', last_updated_by=$2, updated_at=NOW() WHERE id=$3`,
+          [u.no_resi, req.user.email, u.order_id]
+        );
+        updated++;
+      } catch (e) {
+        if (e.code === '23505') {
+          conflicts.push({ order_id: u.order_id, no_resi: u.no_resi, reason: 'Nomor resi sudah dipakai order lain' });
+        } else {
+          throw e;
+        }
+      }
     }
-    res.json({ success: true, updated: updates.length });
+    res.json({ success: conflicts.length === 0, updated, conflicts });
   } catch (err) {
     console.error('Bulk resi error:', err);
     res.status(500).json({ error: 'Bulk resi update failed' });

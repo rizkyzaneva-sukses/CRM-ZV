@@ -211,11 +211,16 @@ export default function PrintResi({ user, customRole }) {
     ...(showPrintedSapJnt ? printedSapJnt : [])
   ];
 
-  // Generate nomor resi otomatis untuk ekspedisi non-SAP/non-J&T
+  // Generate nomor resi otomatis untuk ekspedisi non-SAP/non-J&T.
+  // Batch print memproses semua order lewat Promise.all, jadi Date.now() identik
+  // untuk seluruh batch dan 3 digit acak (900 kemungkinan) tidak cukup - dua order
+  // dengan ekspedisi sama bisa kebagian resi kembar. Potongan ID order dipakai
+  // sebagai pembeda karena selalu unik per order.
   const generateAutoResi = (order) => {
     const ts = Date.now().toString().slice(-6);
     const prefix = (order.jasa_pengiriman || 'EXP').toUpperCase().slice(0, 3).replace(/\s/g,'');
-    return `${prefix}${ts}${Math.floor(Math.random()*900+100)}`;
+    const idFragment = String(order.id || '').replace(/-/g, '').slice(-4).toUpperCase().padStart(4, '0');
+    return `${prefix}${ts}${idFragment}${Math.floor(Math.random()*900+100)}`;
   };
 
   // Print mutation untuk SAP/J&T — hanya jika sudah punya no_resi dari upload

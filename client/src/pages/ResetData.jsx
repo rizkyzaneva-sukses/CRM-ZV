@@ -14,8 +14,10 @@ export default function ResetData({ user, customRole }) {
   const { data: orderCount = 0 } = useQuery({
     queryKey: ['orderCount'],
     queryFn: async () => {
-      const data = await api.getOrders({ limit: 10000 });
-      return data.orders ? data.orders.length : 0;
+      // Pakai `total` dari server, bukan panjang array yang sudah dipotong limit -
+      // angka di kotak peringatan harus benar berapa pun jumlah datanya.
+      const data = await api.getOrders({ limit: 1 });
+      return data.total || 0;
     },
     enabled: isOwner,
   });
@@ -23,8 +25,8 @@ export default function ResetData({ user, customRole }) {
   const { data: itemCount = 0 } = useQuery({
     queryKey: ['itemCount'],
     queryFn: async () => {
-      const data = await api.getOrderItems({ limit: 10000 });
-      return data.order_items ? data.order_items.length : 0;
+      const data = await api.getOrderItems({ limit: 1 });
+      return data.total || 0;
     },
     enabled: isOwner,
   });

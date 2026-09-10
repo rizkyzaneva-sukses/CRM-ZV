@@ -31,7 +31,7 @@ router.get('/', async (req, res) => {
     const countResult = await query(`SELECT COUNT(*) FROM kecamatan_jnt ${whereClause}`, params);
     const total = parseInt(countResult.rows[0].count);
     const result = await query(
-      `SELECT * FROM kecamatan_jnt ${whereClause} ORDER BY provinsi, kota_kab, kecamatan LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT * FROM kecamatan_jnt ${whereClause} ORDER BY provinsi, kota_kab, kecamatan, id LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, parseInt(limit), offset]
     );
     res.json({ data: result.rows, total, page: parseInt(page), limit: parseInt(limit) });

@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const result = await query(
-      `SELECT * FROM products ${whereClause} ORDER BY nama_produk LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT * FROM products ${whereClause} ORDER BY nama_produk, id LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, parseInt(limit), parseInt(offset)]
     );
     const countResult = await query(`SELECT COUNT(*) FROM products ${whereClause}`, params);

@@ -11,7 +11,7 @@ import {
   FileText,
   History,
   Users,
-  Trash2
+  Settings
 } from 'lucide-react';
 
 const menuItems = [
@@ -33,7 +33,7 @@ const commonMenuItems = [
 ];
 
 const adminMenuItems = [
-  { name: 'Users', icon: Users, page: 'UserManagement' },
+  { name: 'Setting', icon: Settings, page: 'Setting' },
 ];
 
 export default function MobileNav({ currentPage, customRole }) {

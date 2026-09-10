@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const countResult = await query(`SELECT COUNT(*) FROM customers ${whereClause}`, params);
     const result = await query(
-      `SELECT * FROM customers ${whereClause} ORDER BY updated_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `SELECT * FROM customers ${whereClause} ORDER BY updated_at DESC, id LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, parseInt(limit), parseInt(offset)]
     );
     res.json({ customers: result.rows, total: parseInt(countResult.rows[0].count) });

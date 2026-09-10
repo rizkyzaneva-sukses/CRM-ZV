@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
     const { page = 1, limit = 50 } = req.query;
     const offset = (page - 1) * limit;
     const result = await query(
-      'SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+      'SELECT * FROM audit_logs ORDER BY created_at DESC, id LIMIT $1 OFFSET $2',
       [parseInt(limit), parseInt(offset)]
     );
     const countResult = await query('SELECT COUNT(*) FROM audit_logs');

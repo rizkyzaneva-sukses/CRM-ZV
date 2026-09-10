@@ -9,6 +9,25 @@ const { seedShippingServices } = require('./utils/seedDefaults');
 
 const app = express();
 
+// Database (terutama yang dikelola panel seperti EasyPanel) sering baru menerima
+// koneksi beberapa detik setelah container app hidup. Tanpa penantian ini,
+// statement-statement pertama menghantam koneksi yang belum siap dan gagal.
+async function waitForDatabase(maxAttempts = 30, delayMs = 2000) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await pool.query('SELECT 1');
+      if (attempt > 1) console.log(`✅ Database siap setelah ${attempt} percobaan`);
+      return;
+    } catch (e) {
+      if (attempt === maxAttempts) {
+        throw new Error(`Database tidak dapat dihubungi setelah ${maxAttempts} percobaan: ${e.message}`);
+      }
+      console.log(`⏳ Menunggu database... (${attempt}/${maxAttempts}) ${e.message}`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
 // Auto-create all tables and seed data on startup
 async function autoSeed() {
   const tables = [
@@ -173,14 +192,40 @@ async function autoSeed() {
     `DO $$ BEGIN ALTER TABLE kecamatan_jnt ADD CONSTRAINT uniq_kecamatan_jnt_kode UNIQUE (kode); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     `DO $$ BEGIN ALTER TABLE products ADD CONSTRAINT uniq_products_sku UNIQUE (sku); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     `DO $$ BEGIN ALTER TABLE customers ADD CONSTRAINT uniq_customers_telepon UNIQUE (no_telepon); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+    // Partial index: hanya berlaku untuk resi yang benar-benar terisi, karena
+    // order yang belum punya resi bernilai NULL atau '' dan itu wajar berulang.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uniq_orders_no_resi ON orders(no_resi) WHERE no_resi IS NOT NULL AND no_resi <> ''`,
   ];
 
   try {
+    await waitForDatabase();
+
+    // Kegagalan CREATE TABLE TIDAK BOLEH ditelan diam-diam. Versi sebelumnya
+    // memakai `catch(e) { /* skip */ }`, sehingga schema yang cuma jadi separuh
+    // tetap mencetak "Database tables initialized" dan aplikasi naik dalam
+    // keadaan rusak - tabel users/products/customers hilang tanpa jejak di log.
+    const failed = [];
     for (const sql of tables) {
-      try { await pool.query(sql); } catch(e) { /* skip */ }
+      try {
+        await pool.query(sql);
+      } catch (e) {
+        const nama = sql.trim().split('(')[0].trim().slice(0, 60);
+        failed.push(`${nama} -> ${e.message}`);
+      }
+    }
+    if (failed.length > 0) {
+      console.error('❌ Gagal menyiapkan schema database:');
+      failed.forEach(f => console.error('   -', f));
+      throw new Error(`${failed.length} statement schema gagal; server dihentikan agar tidak jalan dengan database separuh jadi.`);
     }
     for (const sql of alterTables) {
-      try { await pool.query(sql); } catch(e) { /* skip */ }
+      try {
+        await pool.query(sql);
+      } catch (e) {
+        // Kegagalan di sini biasanya berarti data lama melanggar constraint-nya
+        // (mis. sudah ada no_resi kembar). Jangan didiamkan - operator perlu tahu.
+        console.warn('⚠️  Lewati migrasi constraint:', e.message);
+      }
     }
     console.log('✅ Database tables initialized');
 
@@ -214,7 +259,8 @@ async function autoSeed() {
       await pool.query('UPDATE users SET role=$1, custom_role=$2 WHERE email=$3', ['admin', 'OWNER', 'alawizaneva@gmail.com']);
     }
   } catch (err) {
-    console.error('Auto-seed error:', err.message);
+    console.error('❌ Auto-seed error:', err.message);
+    throw err;
   }
 }
 
@@ -299,11 +345,18 @@ app.use((err, req, res, next) => {
 // Saat di-require dari test, cukup ekspor app-nya supaya supertest bisa memakainya
 // tanpa menyentuh database atau membuka port.
 if (require.main === module) {
-  autoSeed().then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`CRM Server running on port ${PORT}`);
+  autoSeed()
+    .then(() => {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`CRM Server running on port ${PORT}`);
+      });
+    })
+    .catch((err) => {
+      // Lebih baik container gagal dan di-restart oleh orchestrator daripada
+      // melayani request dengan database yang belum benar.
+      console.error('❌ Server tidak dijalankan:', err.message);
+      process.exit(1);
     });
-  });
 }
 
 module.exports = { app, autoSeed };

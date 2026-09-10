@@ -47,36 +47,61 @@ function downloadFile(content, filename, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-const PAGE_SIZE = 100000;
+const PAGE_SIZE = 1000;
 
-async function fetchAllRecords(entityName) {
+// Setiap entity dipetakan ke pemanggil API-nya beserta nama field hasilnya.
+// Sebelumnya hanya 6 dari 10 entity yang ditangani; sisanya diam-diam
+// mengembalikan array kosong sehingga OrderItem, AuditLog, PrintLog, dan
+// ResiImportException selalu ikut terunduh dalam keadaan kosong.
+const ENTITY_FETCHERS = {
+  Order:                { call: (p) => api.getOrders(p),         field: 'orders' },
+  OrderItem:            { call: (p) => api.getOrderItems(p),     field: 'order_items' },
+  Product:              { call: (p) => api.getProducts(p),       field: 'products' },
+  Customer:             { call: (p) => api.getCustomers(p),      field: 'customers' },
+  ShippingService:      { call: () => api.getShippingServices(), field: 'shipping_services', unpaged: true },
+  KecamatanSAP:         { call: (p) => api.getSapKecamatans(p),  field: 'data' },
+  KecamatanJNT:         { call: (p) => api.getJntKecamatans(p),  field: 'data' },
+  AuditLog:             { call: (p) => api.getAuditLogs(p),      field: 'logs' },
+  PrintLog:             { call: (p) => api.getPrintLogs(p),      field: 'print_logs' },
+  ResiImportException:  { call: (p) => api.getResiExceptions(p), field: 'exceptions' },
+};
+
+// Ambil seluruh baris dengan paginasi sampai habis. Memakai satu limit raksasa
+// terlihat berhasil sampai data melewati angka itu, lalu memotong diam-diam.
+async function fetchAllRecords(entityName, onProgress) {
+  const cfg = ENTITY_FETCHERS[entityName];
+  if (!cfg) {
+    console.error(`Entity tidak dikenal: ${entityName}`);
+    return [];
+  }
+
   try {
-    let result = [];
-    if (entityName === 'Order') {
-      const data = await api.getOrders({ limit: PAGE_SIZE });
-      result = data.orders || [];
-    } else if (entityName === 'Product') {
-      const data = await api.getProducts({ limit: PAGE_SIZE });
-      result = data.products || [];
-    } else if (entityName === 'Customer') {
-      const data = await api.getCustomers({ limit: PAGE_SIZE });
-      result = data.customers || [];
-    } else if (entityName === 'ShippingService') {
-      result = await api.getShippingServices();
-    } else if (entityName === 'KecamatanSAP') {
-      const data = await api.getSapKecamatans({ limit: PAGE_SIZE });
-      result = data.data || [];
-    } else if (entityName === 'KecamatanJNT') {
-      const data = await api.getJntKecamatans({ limit: PAGE_SIZE });
-      result = data.data || [];
-    } else {
-      // Return empty array for unsupported entities for now
-      result = [];
+    if (cfg.unpaged) {
+      const data = await cfg.call();
+      return data[cfg.field] || [];
     }
-    return result;
+
+    const all = [];
+    for (let page = 1; ; page++) {
+      const data = await cfg.call({ page, limit: PAGE_SIZE });
+      const rows = data[cfg.field] || [];
+      all.push(...rows);
+      if (onProgress) onProgress(all.length, data.total);
+
+      // Berhenti kalau halaman ini tidak penuh, atau sudah mencapai jumlah total
+      // yang dilaporkan server. Batas 1000 halaman sebagai rem darurat supaya
+      // endpoint yang mengabaikan `page` tidak membuat loop tak berujung.
+      if (rows.length < PAGE_SIZE) break;
+      if (typeof data.total === 'number' && all.length >= data.total) break;
+      if (page >= 1000) {
+        console.warn(`${entityName}: berhenti di 1000 halaman sebagai pengaman`);
+        break;
+      }
+    }
+    return all;
   } catch (error) {
     console.error(`Failed to fetch ${entityName}:`, error);
-    return [];
+    throw new Error(`${entityName}: ${error.message}`);
   }
 }
 

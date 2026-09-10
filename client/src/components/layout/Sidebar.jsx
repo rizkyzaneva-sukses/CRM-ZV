@@ -12,10 +12,9 @@ import {
   CheckCircle,
   History,
   Users,
-  Trash2,
   BookOpen,
   Printer,
-  Database
+  Settings
 } from 'lucide-react';
 
 const menuItems = [
@@ -44,9 +43,10 @@ const commonMenuItems = [
   { name: 'Manual Book', icon: BookOpen, page: 'ManualBook' },
 ];
 
+// User Management, Download All Data, Import Data, dan Reset Data kini jadi tab
+// di dalam halaman Setting - satu pintu untuk semua fungsi administratif.
 const adminMenuItems = [
-  { name: 'User Management', icon: Users, page: 'UserManagement' },
-  { name: 'Import Data', icon: Database, page: 'ImportData' },
+  { name: 'Setting', icon: Settings, page: 'Setting' },
 ];
 
 export default function Sidebar({ currentPage, customRole }) {
