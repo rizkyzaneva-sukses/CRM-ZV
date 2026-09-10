@@ -5,10 +5,13 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "cross-env NODE_ENV=test jest --detectOpenHandles",
+    "test": "cross-env NODE_ENV=test jest --runInBand",
     "dev": "node index.js",
     "migrate": "node utils/migrate.js",
-    "seed": "node utils/seed.js"
+    "seed": "node utils/seed.js",
+    "test:watch": "cross-env NODE_ENV=test jest --runInBand --watch",
+    "test:db": "docker run -d --rm --name crm-test-db -e POSTGRES_USER=crm_user -e POSTGRES_PASSWORD=crm_password -e POSTGRES_DB=crm_test -p 55432:5432 postgres:16-alpine",
+    "test:db:stop": "docker rm -f crm-test-db"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -27,5 +30,13 @@
     "cross-env": "^10.1.0",
     "jest": "^30.4.2",
     "supertest": "^7.2.2"
+  },
+  "jest": {
+    "setupFiles": [
+      "<rootDir>/tests/setup/env.js"
+    ],
+    "testEnvironment": "node",
+    "testTimeout": 30000,
+    "maxWorkers": 1
   }
 }

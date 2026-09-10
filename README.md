@@ -57,6 +57,39 @@ cd .. && npm run dev
 # Backend: http://localhost:3001
 ```
 
+## Testing
+
+Tes integrasi berjalan terhadap PostgreSQL sungguhan, bukan mock, sehingga ikut
+memverifikasi constraint, paginasi, dan aturan otorisasi.
+
+```bash
+cd server
+
+# Jalankan database khusus tes (terpisah dari database pengembangan)
+npm run test:db
+
+# Jalankan seluruh tes
+TEST_DATABASE_URL=postgresql://crm_user:crm_password@localhost:55432/crm_test npm test
+
+# Hentikan database tes
+npm run test:db:stop
+```
+
+`TEST_DATABASE_URL` sengaja dipisah dari `DATABASE_URL`: helper tes melakukan
+`TRUNCATE` di antara file tes, jadi mengarahkannya ke database pengembangan
+akan menghapus datanya.
+
+Struktur tes:
+
+| Berkas | Cakupan |
+|---|---|
+| `tests/auth.test.js` | Tes unit endpoint auth (database di-mock) |
+| `tests/integration/auth-access.test.js` | Pendaftaran, login, role, kepemilikan data |
+| `tests/integration/orders.test.js` | Perhitungan total, penomoran, alur Finance |
+| `tests/integration/data-integrity.test.js` | Paginasi ekspor, keunikan resi, upload Excel, factory reset |
+
+CI menjalankan seluruh tes ini pada setiap push dan pull request ke `main`.
+
 ## Default Login
 
 - **Email:** admin@zaneva.com
